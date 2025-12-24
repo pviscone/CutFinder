@@ -1,0 +1,54 @@
+#!/usr/bin/env python
+from CutFinder.readers import ConfigReader
+
+import multiprocessing
+
+import typer
+from typing_extensions import Annotated
+from rich.console import Console
+from rich import print as pprint
+import ROOT
+
+ROOT.gInterpreter.Declare('#include "include/functions.cpp"')
+
+app = typer.Typer(
+    pretty_exceptions_show_locals=False, rich_markup_mode="rich", add_completion=False
+)
+console = Console(record=True)
+
+
+@app.command()
+def main(
+    path: Annotated[
+        str, typer.Option("-c", "--config", help="Path to the config file.")
+    ],
+    output: Annotated[
+        str, typer.Option("-o", "--output", help="Path to the output folder.")
+    ],
+    ncpus: int = typer.Option(
+            multiprocessing.cpu_count(),
+            "-j",
+            "--ncpus",
+            help="Number of CPUs to use.",
+        )
+):
+    if ncpus > 1:
+        ROOT.EnableImplicitMT(ncpus)
+
+    config_reader = ConfigReader(path)
+    glob = config_reader.glob
+    objs = config_reader.objs
+    refs = config_reader.refs
+    breakpoint()
+    for ref in refs:
+        pprint(f"[bold blue]Config Reference:[/bold blue]\n\t{ref.name}\n")
+        ref.compute(glob.pt_bins, glob.maxRate)
+        for obj in objs:
+            pprint(f"[bold yellow]Config Object:[/bold yellow]\n\t{obj.name}\n")
+            obj.compute(glob.pt_bins, glob.maxRate)
+
+    breakpoint()
+
+
+if __name__ == "__main__":
+    app()
