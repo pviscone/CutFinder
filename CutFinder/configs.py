@@ -1,4 +1,6 @@
+from CutFinder.algorithms import iterative_bin_cutter
 from CutFinder.functions import applyWP
+from CutFinder.regressors import piecewise_chi2
 
 from typing import Optional
 from collections.abc import Callable, Iterable
@@ -6,14 +8,23 @@ from collections.abc import Callable, Iterable
 from array import array
 import hist
 import numpy as np
+from rich import print as pprint
 import ROOT
 import sympy as sp
 
 
 class GlobalConf:
-    def __init__(self, pt_bins, maxRate = 31038.96):  #(PU200)
+    def __init__(
+        self,
+        pt_bins,
+        maxRate=31038.96,
+        algo=iterative_bin_cutter,
+        regressor=piecewise_chi2,
+    ):  # (PU200)
         self.pt_bins = pt_bins
         self.maxRate = maxRate
+        self.algo = algo
+        self.regressor = regressor
 
 
 class Config:
@@ -50,9 +61,6 @@ class Config:
             self.scaling = None
             self.inverse_scaling = None
 
-        self.to_compute = True if rate is None else False
-        self.to_preprocess = False if preprocess_function is None else True
-
         self.samples_path = samples_path
         self.pt_branch = pt_branch
         self.score_branch = score_branch
@@ -68,6 +76,12 @@ class Config:
         self.nEvents = None
         self.rate_err = None
         self.WP = None
+
+        # flags
+        self.isPreprocessed = False
+        self.isScaled = False
+        self.isWPApplied = False
+        self.isComputed = False
 
     def clone(self, cls=None, **kwargs):
         if cls is None:
@@ -88,70 +102,85 @@ class Config:
         return cls(**filtered)
 
     def loadRDF(self):
-        chain = ROOT.TChain(self.tree)
-        chain.Add(self.samples_path)
-        self.rdf = ROOT.RDataFrame(chain)
-        self.TotEvents = self.rdf.Count().GetValue()
+        if self.rdf is None:
+            chain = ROOT.TChain(self.tree)
+            if "{" in self.samples_path or "}" in self.samples_path:
+                range_part = self.samples_path.split("{")[1].split("}")[0]
+                start, end = map(int, range_part.split(".."))
+                for i in range(start, end + 1):
+                    chain.Add(self.samples_path.replace("{" + range_part + "}", str(i)))
+            else:
+                chain.Add(self.samples_path)
+            self.rdf = ROOT.RDataFrame(chain)
+            self.TotEvents = self.rdf.Count().GetValue()
 
     def runPreprocess(self):
-        if self.func is not None:
+        if self.func is not None and not self.isPreprocessed:
             self.rdf = self.func(self.rdf)
             self.nEvents = self.rdf.Count().GetValue()
+            self.isPreprocessed = True
 
     def getEntries(self):
-        self.nEvents = self.rdf.Count().GetValue()
+        if self.nEvents is None:
+            self.nEvents = self.rdf.Count().GetValue()
 
     def scale(self):
-        if self.scaling is not None:
+        if self.scaling is not None and not self.isScaled:
             self.rdf = self.rdf.Redefine(self.pt_branch, self.scaling)
+            self.isScaled = True
 
     def makeRate(self, bins, maxRate):
-        self.rdf = self.rdf.Filter(f"{self.pt_branch}.size()>0").Redefine(
-            self.pt_branch, f"Max({self.pt_branch})"
-        )
-        self.scale()
-        self.getEntries()
-
-        if isinstance(bins, tuple):
-            axis = hist.axis.Regular(bins[0], bins[1], bins[2])
-            th = self.rdf.Histo1D(("", "", bins[0], bins[1], bins[2]), self.pt_branch)
-        elif isinstance(bins, np.ndarray):
-            axis = hist.axis.Variable(bins)
-            th = self.rdf.Histo1D(
-                ("", "", len(bins) - 1, array("f", bins)), self.pt_branch
-            )
-        else:
-            raise ValueError("bins must be either a tuple or a numpy array.")
-
-        th = th.GetValue()
-        h = hist.Hist(axis, storage=hist.storage.Weight())
-
-        for i in range(1, th.GetNbinsX() + 1):
-            h.fill(th.GetBinLowEdge(i), weight=th.GetBinContent(i))
-
-        h = (self.nEvents / self.TotEvents) * maxRate * h / h.integrate(0, 0).value
-
-        rate = np.array([])
-        rate_err = np.array([])
-        for idx, _ in enumerate(bins[:-1]):
-            integral = h.integrate(0, idx)
-            rate = np.append(rate, integral.value)
-            rate_err = np.append(rate_err, integral.variance**0.5)
-        self.rate = rate
-        self.rate_err = rate_err
-
-    def compute(self, pt_bins, maxRate):
         if self.rate is None:
+            self.rdf = self.rdf.Define("MAXPT", f"Max({self.pt_branch})")
+            if isinstance(bins, tuple):
+                axis = hist.axis.Regular(bins[0], bins[1], bins[2])
+                th = self.rdf.Histo1D(("", "", bins[0], bins[1], bins[2]), "MAXPT")
+            elif isinstance(bins, np.ndarray):
+                axis = hist.axis.Variable(bins)
+                th = self.rdf.Histo1D(
+                    ("", "", len(bins) - 1, array("f", bins)), "MAXPT"
+                )
+            else:
+                raise ValueError("bins must be either a tuple or a numpy array.")
+
+            th = th.GetValue()
+            h = hist.Hist(axis, storage=hist.storage.Weight())
+
+            for i in range(1, th.GetNbinsX() + 1):
+                h.fill(th.GetBinLowEdge(i), weight=th.GetBinContent(i))
+
+            h = (self.nEvents / self.TotEvents) * maxRate * h / h.integrate(0, 0).value
+
+            rate = np.array([])
+            rate_err = np.array([])
+            for idx, _ in enumerate(bins):
+                integral = h.integrate(0, idx)
+                rate = np.append(rate, integral.value)
+                rate_err = np.append(rate_err, integral.variance**0.5)
+            self.rate = rate
+            self.rate_err = rate_err
+
+    def compute(self):
+        if not self.isComputed:
+            pprint(
+                f"[bold green]Computing {self.__class__.__name__}:[/bold green]\n\t{self.name}\n"
+            )
             self.loadRDF()
             self.runPreprocess()
             self.apply_WP()
-            self.makeRate(pt_bins, maxRate)
+            self.rdf = self.rdf.Filter(f"{self.pt_branch}.size()>0")
+            self.scale()
+            self.getEntries()
+            self.isComputed = True
+
+            # self.makeRate(pt_bins, maxRate)
 
     def apply_WP(self):
-        if self.WP is not None:
+        if self.WP is not None and not self.isWPApplied:
             self.rdf = applyWP(
                 self.pt_branch, self.score_branch, self.WP[0], self.WP[1], self.rdf
             )
+            self.isWPApplied = True
 
 
 class ConfigEff:
@@ -194,6 +223,7 @@ class ConfigObj(Config):
         preprocess_function: Optional[Callable] = None,
         scaling_function: Optional[str] = None,
         tree: str = "Events",
+        refs: Optional[list[ConfigRef]] = None,
     ):
         super().__init__(
             samples_path=samples_path,
@@ -204,5 +234,5 @@ class ConfigObj(Config):
             rate=None,
             tree=tree,
         )
-        self.rate_after_cuts = None
-        self.rate_after_cuts_err = None
+
+        self.refs = refs
