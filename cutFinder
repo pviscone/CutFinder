@@ -26,11 +26,11 @@ def main(
         str, typer.Option("-o", "--output", help="Path to the output folder.")
     ],
     ncpus: int = typer.Option(
-            multiprocessing.cpu_count(),
-            "-j",
-            "--ncpus",
-            help="Number of CPUs to use.",
-        )
+        multiprocessing.cpu_count(),
+        "-j",
+        "--ncpus",
+        help="Number of CPUs to use.",
+    ),
 ):
     if ncpus > 1:
         ROOT.EnableImplicitMT(ncpus)
@@ -39,16 +39,37 @@ def main(
     glob = config_reader.glob
     objs = config_reader.objs
     refs = config_reader.refs
-    breakpoint()
     for ref in refs:
-        pprint(f"[bold blue]Config Reference:[/bold blue]\n\t{ref.name}\n")
-        ref.compute(glob.pt_bins, glob.maxRate)
         for obj in objs:
-            pprint(f"[bold yellow]Config Object:[/bold yellow]\n\t{obj.name}\n")
-            obj.compute(glob.pt_bins, glob.maxRate)
+            if obj.refs is not None:
+                if ref not in obj.refs:
+                    continue
+            ref.compute()  # if ref already computed, compute does nothing
+            obj.compute()
+            cuts = glob.algo(ref, obj, glob)
+            breakpoint()
 
-    breakpoint()
+            ####DEBUG beteween obj:new_id and ref:custom (same samples but global score cut of 0)
+            print("Cuts found:", cuts)
+            from CutFinder.configs import ConfigRef
 
+            new = obj.clone(ConfigRef, WP=[glob.pt_bins, cuts])
+            new.compute()
+            new.makeRate(glob.pt_bins, glob.maxRate)
+            print(f"Original object rates: {ref.rate}")
+            print(f"New object rates after applying cuts: {new.rate}")
+            import matplotlib.pyplot as plt
+
+            plt.figure()
+            plt.plot(glob.pt_bins, ref.rate, label="Original object")
+            plt.plot(glob.pt_bins, new.rate, label="New object after cuts")
+            plt.xlabel("pT [GeV]")
+            plt.ylabel("Rate [kHz]")
+            plt.yscale("log")
+            plt.legend()
+            plt.show()
+            breakpoint()
+            #!NB in bin 1 i have the warning target rate higher than current rate. That's not true. Investigate. Line by line!!!
 
 if __name__ == "__main__":
     app()
