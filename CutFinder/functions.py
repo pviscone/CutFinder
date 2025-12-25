@@ -6,7 +6,8 @@ import numpy as np
 
 def applyWP(pt_branch, score_branch, pt_bins, score_thresholds, rdf):
     pt_bins = np.array(pt_bins).tolist()
-    score_thresholds = np.array(score_thresholds).tolist()
+    score_thresholds = np.array(score_thresholds)
+    score_thresholds = np.nan_to_num(score_thresholds, neginf=-999.).tolist()
     pt_bins = "{" + ", ".join(map(str, pt_bins)) + "}"
     score_thresholds = "{" + ", ".join(map(str, score_thresholds)) + "}"
     rdf = (
