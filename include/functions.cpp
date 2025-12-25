@@ -14,6 +14,7 @@ RVec<bool> WP_mask(const RVecF &pt, const RVecF &score,
     float p = pt[i];
     float s = score[i];
 
+    //Assume pt_bins sorted ascendingly
     for (size_t j = pt_bins.size(); j-- > 0;) {
       if (p >= pt_bins[j] && s >= score_cuts[j]) {
         mask[i] = true;
