@@ -191,12 +191,15 @@ class Plotter:
 
             full_bins = np.array(ref_dict["full"]["bins"])
             full_cuts = np.array(ref_dict["full"]["cuts"])
+            full_err = np.array(ref_dict["full"]["cuts_err"])
             full_bins = full_bins[full_cuts>-9999]
             full_cuts = full_cuts[full_cuts>-9999]
+            full_err = full_err[full_cuts>-9999]
 
             #plot full cuts
-            line, = ax.plot(full_bins,
+            line,_,_ = ax.errorbar(full_bins,
                         full_cuts,
+                        yerr=full_err,
                         marker=markers[idx % len(markers)],
                         linestyle="--",
                         color=palette[idx % len(palette)],
