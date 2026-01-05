@@ -6,7 +6,7 @@ import numpy as np
 
 def iterative_bin_cutter(ref, obj, glob):
     ref.makeRate(glob.pt_bins, glob.maxRate)
-
+    breakpoint()
     cuts = []
 
     if ref.rate[-1] == 0.0:
@@ -18,12 +18,23 @@ def iterative_bin_cutter(ref, obj, glob):
         # Select max score in the last pt bin
         scores = (
             obj.rdf.Define(
-                "scores", f"{obj.score_branch}[{obj.pt_branch} > {glob.pt_bins[-1]}]"
+                "scores", f"{obj.score_branch}[{obj.pt_branch} >= {glob.pt_bins[-1]}]"
             )
             .Filter("scores.size() > 0")
             .Define("max_score", "Max(scores)")
         ).AsNumpy(["max_score"])["max_score"]
-        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
+        # rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
+        rate_bin = (
+            (
+                obj.rdf.Filter(f"{obj.pt_branch}.size() > 0")
+                .Define("_maxPt", f"Max({obj.pt_branch})")
+                .Filter(f"_maxPt >= {glob.pt_bins[-1]}")
+                .Count()
+                .GetValue()
+            )
+            * glob.maxRate
+            / obj.TotEvents
+        )
 
         # Fraction of events to keep in the last pt bin
         f = ref.rate[-1] / rate_bin
@@ -86,7 +97,18 @@ def iterative_bin_cutter(ref, obj, glob):
             .AsNumpy(["max_score"])["max_score"]
         )
 
-        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
+        # rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
+        rate_bin = (
+            (
+                rdf.Filter(f"{obj.pt_branch}.size() > 0")
+                .Define("_maxPt", f"Max({obj.pt_branch})")
+                .Filter(f"_maxPt >= {glob.pt_bins[i]}")
+                .Count()
+                .GetValue()
+            )
+            * glob.maxRate
+            / obj.TotEvents
+        )
 
         f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - ref.rate[i + 1])
         if f > 1.0:
@@ -128,3 +150,26 @@ def iterative_bin_cutter(ref, obj, glob):
 
     cuts = np.array(cuts[::-1])
     return cuts
+
+
+"""
+new rate bins do not correspond to these
+
+
+    rate_bin = (
+(
+    obj.rdf.Filter(f"{obj.pt_branch}.size() > 0")
+    .Define("_maxPt", f"Max({obj.pt_branch})")
+    .Filter(f"_maxPt >= {glob.pt_bins[-1]}")
+    .Count()
+    .GetValue()
+)
+* glob.maxRate
+/ obj.TotEvents
+)
+
+rate_bin =rdf.Filter(f"{obj.pt_branch}.size() > 0").Define("_maxPt", f"Max({obj.pt_branch})").Filter(f"_maxPt >= {glob.pt_bins[i]}").Count().GetValue()* (glob.maxRate / obj.TotEvents)+ ref.rate[i + 1]
+
+Also this is wrong
+
+"""

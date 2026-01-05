@@ -47,7 +47,6 @@ def main(
             ref.compute()  # if ref already computed, compute does nothing
             obj.compute()
             cuts = glob.algo(ref, obj, glob)
-            breakpoint()
 
             ####DEBUG beteween obj:new_id and ref:custom (same samples but global score cut of 0)
             print("Cuts found:", cuts)
