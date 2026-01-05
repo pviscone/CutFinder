@@ -36,6 +36,11 @@ def main(
         "--ncpus",
         help="Number of CPUs to use.",
     ),
+    regressor_only: bool = typer.Option(
+        False,
+        "--regressor-only",
+        help="Only perform the regression on pre-computed cuts.",
+    ),
 ):
     if ncpus > 1:
         ROOT.EnableImplicitMT(ncpus)
@@ -52,27 +57,47 @@ def main(
             if ((obj.scaling is not None and ref.scaling is None) or
                 (obj.scaling is None and ref.scaling is not None)):
                 raise ValueError(f"You are comparing Offline and Online pT between obj {obj.name} and ref {ref.name}. Please provide scaling functions for both configurations or none.")
-            # if already computed, compute does nothing
-            ref.compute()
-            obj.compute()
-            cuts = glob.algo(ref, obj, glob, **glob.algo_kwargs)
+
             #inverse scale if scaling is applied
             if obj.scaling is not None:
                 cut_bins = obj.inverse_scaling(np.array(glob.pt_bins))
             else:
                 cut_bins = glob.pt_bins
 
-            #compute rate with new cuts for full binning
-            clone = obj.clone(ConfigRef, WP=[cut_bins, cuts])
-            clone.compute()
-            clone.makeRate(glob.pt_bins, glob.maxRate)
+            if not regressor_only:
+                # if already computed, compute does nothing
+                ref.compute()
+                obj.compute()
+                cuts, cuts_err = glob.algo(ref, obj, glob, **glob.algo_kwargs)
+
+                #compute rate with new cuts for full binning
+                clone = obj.clone(ConfigRef, WP=[cut_bins, cuts])
+                clone.compute()
+                clone.makeRate(glob.pt_bins, glob.maxRate)
+                rate = clone.rate
+
+            else:
+                #load json record to get cuts
+                with open(f"{output}/{obj.name}/records.json","r") as fp:
+                    records = json.load(fp)
+                ref_rate = records[ref.name]["ref_rate"]
+                cut_record = records[ref.name]["full"]
+                cut_bins = np.array(cut_record["bins"])
+                cuts = np.array(cut_record["cuts"])
+                rate= np.array(cut_record["rate"])
+                cuts_err = np.array(cut_record.get("cuts_err", np.ones_like(cuts)))
 
             #create record and save cuts
-            obj.addToRecord(ref, "full", cut_bins, cuts, clone.rate)
+            obj.addToRecord(ref, "full", cut_bins, cuts, rate, cuts_err=cuts_err)
+
+            # in regressor only mode, save also the ref rate
+            if regressor_only:
+                obj.records[ref.name]["ref_rate"] = ref_rate
 
             fitted_cut_bins, fitted_cuts, chi2 = glob.regressor(
                 cut_bins,
                 cuts,
+                sigma = cuts_err,
                 fitrange=glob.fitrange,
                 **glob.regressor_kwargs,
             )
@@ -89,7 +114,7 @@ def main(
                 fitted_cut_bins,
                 fitted_cuts,
                 fitted_clone.rate,
-                #chi2=chi2,
+                chi2=chi2,
             )
 
     #prepare output folder
@@ -113,8 +138,6 @@ def main(
             obj.records["pt_bins"] = glob.pt_bins
         with open(f"{output}/{obj.name}/records.json","w") as fp:
             json.dump(obj.records, fp, indent=4)
-    #TODO remove at the end
-    breakpoint()
 
 
 
