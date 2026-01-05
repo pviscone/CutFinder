@@ -55,7 +55,7 @@ def main(
             # if already computed, compute does nothing
             ref.compute()
             obj.compute()
-            cuts = glob.algo(ref, obj, glob)
+            cuts = glob.algo(ref, obj, glob, **glob.algo_kwargs)
             #inverse scale if scaling is applied
             if obj.scaling is not None:
                 cut_bins = obj.inverse_scaling(np.array(glob.pt_bins))
@@ -70,6 +70,28 @@ def main(
             #create record and save cuts
             obj.addToRecord(ref, "full", cut_bins, cuts, clone.rate)
 
+            fitted_cut_bins, fitted_cuts, chi2 = glob.regressor(
+                cut_bins,
+                cuts,
+                fitrange=glob.fitrange,
+                **glob.regressor_kwargs,
+            )
+            fitted_clone = obj.clone(
+                ConfigRef, WP=[fitted_cut_bins, fitted_cuts]
+            )
+            fitted_clone.compute()
+            fitted_clone.makeRate(glob.pt_bins, glob.maxRate)
+
+            #create record and save cuts
+            obj.addToRecord(
+                ref,
+                "fitted",
+                fitted_cut_bins,
+                fitted_cuts,
+                fitted_clone.rate,
+                #chi2=chi2,
+            )
+
     #prepare output folder
     os.makedirs(output, exist_ok=True)
     os.system(f"cp -f {path} {output}/{path.split('/')[-1]}")
@@ -81,7 +103,8 @@ def main(
         os.system(f"cp {os.path.join(os.path.dirname(__file__),"externals/index.php")} {output}/{obj.name}/index.php")
 
         #plots
-        plotter.plot_rates(glob, obj, "full", output=output)
+        plotter.plot_rates(glob, obj, output=output)
+        plotter.plot_cuts(obj, output=output)
 
         #add glob pt_bins to record and save records.json
         if isinstance(glob.pt_bins, np.ndarray):
@@ -90,6 +113,7 @@ def main(
             obj.records["pt_bins"] = glob.pt_bins
         with open(f"{output}/{obj.name}/records.json","w") as fp:
             json.dump(obj.records, fp, indent=4)
+    #TODO remove at the end
     breakpoint()
 
 
