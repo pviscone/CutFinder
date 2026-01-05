@@ -6,7 +6,6 @@ import numpy as np
 
 def iterative_bin_cutter(ref, obj, glob):
     ref.makeRate(glob.pt_bins, glob.maxRate)
-    breakpoint()
     cuts = []
 
     if ref.rate[-1] == 0.0:
@@ -80,36 +79,24 @@ def iterative_bin_cutter(ref, obj, glob):
         )
         # Select max score in the current pt bin (from the last to the first) and discard events which already triggered the previous cuts
         scores = (
+            # Discard events which already triggered previous cuts
+            rdf.Filter(f"Max({obj.pt_branch}) < {glob.pt_bins[i + 1]}")
             # select objs in current pt bin
-            rdf.Redefine(
+            .Redefine(
                 obj.score_branch,
-                f"{obj.score_branch}[{obj.pt_branch} >= {glob.pt_bins[i - 1]} && {obj.pt_branch} < {glob.pt_bins[i]}]",
+                f"{obj.score_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i+1]}]",
             )
             .Redefine(
                 obj.pt_branch,
-                f"{obj.pt_branch}[{obj.pt_branch} >= {glob.pt_bins[i - 1]} && {obj.pt_branch} < {glob.pt_bins[i]}]",
+                f"{obj.pt_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i+1]}]",
             )
             .Filter(f"{obj.pt_branch}.size() > 0")
-            # Discard events which already triggered previous cuts
-            .Filter(f"Max({obj.pt_branch}) < {glob.pt_bins[i + 1]}")
             # Select max score
             .Define("max_score", f"Max({obj.score_branch})")
             .AsNumpy(["max_score"])["max_score"]
         )
 
-        # rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
-        rate_bin = (
-            (
-                rdf.Filter(f"{obj.pt_branch}.size() > 0")
-                .Define("_maxPt", f"Max({obj.pt_branch})")
-                .Filter(f"_maxPt >= {glob.pt_bins[i]}")
-                .Count()
-                .GetValue()
-            )
-            * glob.maxRate
-            / obj.TotEvents
-        )
-
+        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
         f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - ref.rate[i + 1])
         if f > 1.0:
             print(

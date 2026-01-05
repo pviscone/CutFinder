@@ -5,8 +5,10 @@ import numpy as np
 
 
 def applyWP(pt_branch, score_branch, pt_bins, score_thresholds, rdf):
-    pt_bins = np.array(pt_bins).tolist()
-    score_thresholds = np.array(score_thresholds)
+    pt_bins = np.array(pt_bins)
+    argsortidx = np.argsort(pt_bins) #WP_mask function assumes pt_bins sorted ascendingly
+    pt_bins = pt_bins[argsortidx].tolist()
+    score_thresholds = np.array(score_thresholds)[argsortidx]
     score_thresholds = np.nan_to_num(score_thresholds, neginf=-999.).tolist()
     pt_bins = "{" + ", ".join(map(str, pt_bins)) + "}"
     score_thresholds = "{" + ", ".join(map(str, score_thresholds)) + "}"
