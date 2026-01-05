@@ -248,11 +248,17 @@ class ConfigObj(Config):
         self.refs = refs
         self.records = dict()
 
-    def addToRecord(self, ref, record_name, bins, cuts, rate, chi2=None):
+    def addToRecord(self, ref, record_name, bins, cuts, rate, cuts_err=None, chi2=None):
+        mask = np.bitwise_and(cuts!=-np.inf, cuts>-9999.0)
+        bins = bins[mask]
+        cuts = cuts[mask]
+        if cuts_err is not None:
+            cuts_err = cuts_err[mask]
+            if isinstance(cuts_err, np.ndarray):
+                cuts_err = cuts_err.tolist()
         if isinstance(bins, np.ndarray):
             bins = bins.tolist()
         if isinstance(cuts, np.ndarray):
-            cuts = np.nan_to_num(cuts, neginf=-9999.0)
             cuts = cuts.tolist()
         if isinstance(rate, np.ndarray):
             rate = rate.tolist()
@@ -267,3 +273,5 @@ class ConfigObj(Config):
             self.records[ref.name][record_name] = {"bins": bins, "cuts": cuts, "rate": rate}
         if chi2 is not None:
             self.records[ref.name][record_name]["chi2"] = chi2
+        if cuts_err is not None:
+            self.records[ref.name][record_name]["cuts_err"] = cuts_err
