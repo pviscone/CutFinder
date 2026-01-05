@@ -4,7 +4,7 @@ import numpy as np
 #! Inverse scaling will be applied in the regressor to map back to online pT.
 
 
-def iterative_bin_cutter(ref, obj, glob):
+def iterative_bin_cutter(ref, obj, glob, **kwargs):
     ref.makeRate(glob.pt_bins, glob.maxRate)
     cuts = []
 
@@ -139,25 +139,3 @@ def iterative_bin_cutter(ref, obj, glob):
     cuts = np.array(cuts[::-1])
     return cuts
 
-
-"""
-new rate bins do not correspond to these
-
-
-    rate_bin = (
-(
-    obj.rdf.Filter(f"{obj.pt_branch}.size() > 0")
-    .Define("_maxPt", f"Max({obj.pt_branch})")
-    .Filter(f"_maxPt >= {glob.pt_bins[-1]}")
-    .Count()
-    .GetValue()
-)
-* glob.maxRate
-/ obj.TotEvents
-)
-
-rate_bin =rdf.Filter(f"{obj.pt_branch}.size() > 0").Define("_maxPt", f"Max({obj.pt_branch})").Filter(f"_maxPt >= {glob.pt_bins[i]}").Count().GetValue()* (glob.maxRate / obj.TotEvents)+ ref.rate[i + 1]
-
-Also this is wrong
-
-"""
