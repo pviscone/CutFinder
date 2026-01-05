@@ -1,6 +1,6 @@
 from CutFinder.algorithms import iterative_bin_cutter
 from CutFinder.functions import applyWP
-from CutFinder.regressors import piecewise_chi2
+from CutFinder.regressors import bayesian_blocks_gaussian
 
 from typing import Optional
 from collections.abc import Callable, Iterable
@@ -19,18 +19,18 @@ class GlobalConf:
         pt_bins,
         maxRate=31038.96,
         algo=iterative_bin_cutter,
-        regressor=piecewise_chi2,
-        nWP=6
+        algo_kwargs = {},
+        regressor=bayesian_blocks_gaussian,
+        regressor_kwargs = {},
+        fitrange: Optional[tuple[float, float]] = None,
     ):  # (PU200)
         self.pt_bins = pt_bins
         self.maxRate = maxRate
         self.algo = algo
         self.regressor = regressor
-        if isinstance(nWP, int):
-            self.nWP = [i for i in range(1,nWP+1)]
-        else:
-            self.nWP = nWP
-
+        self.fitrange = fitrange
+        self.algo_kwargs = algo_kwargs
+        self.regressor_kwargs = regressor_kwargs
 
 class Config:
     def __init__(
@@ -171,9 +171,10 @@ class Config:
 
     def compute(self):
         if not self.isComputed:
-            pprint(
-                f"[bold green]Computing {self.__class__.__name__}:[/bold green]\n\t{self.name}\n"
-            )
+            if self.name is not None:
+                pprint(
+                    f"[bold green]Computing {self.__class__.__name__}:[/bold green]\n\t{self.name}\n"
+                )
             self.loadRDF()
             self.runPreprocess()
             self.apply_WP()
