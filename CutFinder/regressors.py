@@ -1,22 +1,24 @@
 import numpy as np
 
 
-def bayesian_blocks_gaussian(x, y, sigma=None, penalty=3.0, fitrange=None, **kwargs):
+def bayesian_blocks_gaussian(x, y, sigma=None, penalty=3.0, fitrange=None):
     x = np.asarray(x)
     y = np.asarray(y)
     x = x[y!=-np.inf]
+    if sigma is None:
+        sigma = np.ones_like(y)
+    else:
+        sigma = np.asarray(sigma)[y!=-np.inf]+1e-6  #avoid zero division
+
     y = y[y!=-np.inf]
 
     if fitrange is not None:
-        x = x[np.bitwise_and(x >= fitrange[0], x <= fitrange[1])]
         y = y[np.bitwise_and(x >= fitrange[0], x <= fitrange[1])]
+        sigma = sigma[np.bitwise_and(x >= fitrange[0], x <= fitrange[1])]
+        x = x[np.bitwise_and(x >= fitrange[0], x <= fitrange[1])]
 
     n = len(y)
 
-    if sigma is None:
-        sigma = np.ones_like(y)*0.1
-    else:
-        sigma = np.asarray(sigma)
 
     order = np.argsort(x)
     x = x[order]
