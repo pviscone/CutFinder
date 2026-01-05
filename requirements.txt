@@ -1,0 +1,8 @@
+python==3.12.*
+root==6.36.06
+typer==0.20.0
+hist==2.9.0
+mplhep==0.4.1
+mplhep_data==0.0.5
+rich==14.2.0
+sympy==1.14.0
