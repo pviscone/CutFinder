@@ -134,6 +134,7 @@ def iterative_bin_cutter(ref, obj, glob):
                 )
                 .Filter(f"{obj.pt_branch}.size() > 0")
             )
+        print(f"\tCut found : {cuts[-1]}\n")
 
     cuts = np.array(cuts[::-1])
     return cuts
