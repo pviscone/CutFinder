@@ -5,7 +5,7 @@ import numpy as np
 glob = GlobalConf(pt_bins=np.arange(0, 65, 5),
                   fitrange=(0, 55),
                   algo_kwargs={"n_bootstrap": 500, },
-                  regressor_kwargs={"penalty": 300.0},)
+                  regressor_kwargs={"penalty": 3.0},)
 
 new_id = ConfigObj(
     samples_path="root://eoscms.cern.ch//eos/cms/store/cmst3/group/l1tr/pviscone/l1teg/fp_ntuples/NuGunAllEta_PU200/FP/151X_TkElePtRegrTemp_A0/perfNano_10044360_*.root",
