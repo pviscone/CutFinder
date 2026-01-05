@@ -42,6 +42,7 @@ The cli command is `cutFinder`
 
 - `-c path/to/config.py` specify the path to the config file
 - `-o path/to/outfolder` specify the path in which to save the output folder
+- `-j int` Controls how many cores RDataframe have to use (default: ALL OF THEM)
 - `--regressor-only` often you need to compute the bin-by-bin cuts only once and then finetune the regressor (unless you need a finer binning). With this command you can use the already computed rates and cuts loading them from the `records.json` located in the previously saved output folder.
 
 ## Configs
@@ -105,6 +106,8 @@ Currently this is the only algorithm defined.
 Starting from the last pt bin it finds the cut to apply, apply the cut, remove events which contains objects that already triggered in the processed bins and proceed recursively.
 
 The cuts_err are estimated through Bootstrapping that can be controlled with the `n_bootstrap` argument (default = 1000)
+
+Achtung!: the bootstrap slows the process by a lot, do not use high values
 
 ## Regressors
 The regressor are function defined in CutFinder/regressors.py that have
