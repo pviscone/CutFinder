@@ -20,11 +20,16 @@ class GlobalConf:
         maxRate=31038.96,
         algo=iterative_bin_cutter,
         regressor=piecewise_chi2,
+        nWP=6
     ):  # (PU200)
         self.pt_bins = pt_bins
         self.maxRate = maxRate
         self.algo = algo
         self.regressor = regressor
+        if isinstance(nWP, int):
+            self.nWP = [i for i in range(1,nWP+1)]
+        else:
+            self.nWP = nWP
 
 
 class Config:
@@ -129,9 +134,13 @@ class Config:
             self.rdf = self.rdf.Redefine(self.pt_branch, self.scaling)
             self.isScaled = True
 
-    def makeRate(self, bins, maxRate):
-        if self.rate is None:
-            self.rdf = self.rdf.Define("MAXPT", f"Max({self.pt_branch})")
+    def makeRate(self, bins, maxRate, overwrite=False):
+        if self.rate is None or overwrite:
+            if "MAXPT" not in self.rdf.GetDefinedColumnNames():
+                self.rdf = self.rdf.Define("MAXPT", f"Max({self.pt_branch})")
+            else:
+                self.rdf = self.rdf.Redefine("MAXPT", f"Max({self.pt_branch})")
+
             if isinstance(bins, tuple):
                 axis = hist.axis.Regular(bins[0], bins[1], bins[2])
                 th = self.rdf.Histo1D(("", "", bins[0], bins[1], bins[2]), "MAXPT")
@@ -236,3 +245,24 @@ class ConfigObj(Config):
         )
 
         self.refs = refs
+        self.records = dict()
+
+    def addToRecord(self, ref, record_name, bins, cuts, rate, chi2=None):
+        if isinstance(bins, np.ndarray):
+            bins = bins.tolist()
+        if isinstance(cuts, np.ndarray):
+            cuts = np.nan_to_num(cuts, neginf=-9999.0)
+            cuts = cuts.tolist()
+        if isinstance(rate, np.ndarray):
+            rate = rate.tolist()
+        if isinstance(ref.rate, np.ndarray):
+            ref_rate = ref.rate.tolist()
+        else:
+            ref_rate = ref.rate
+
+        if ref.name not in self.records:
+            self.records[ref.name] = {"ref_rate": ref_rate, record_name : {"bins": bins, "cuts": cuts, "rate": rate}}
+        else:
+            self.records[ref.name][record_name] = {"bins": bins, "cuts": cuts, "rate": rate}
+        if chi2 is not None:
+            self.records[ref.name][record_name]["chi2"] = chi2
