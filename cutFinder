@@ -1,8 +1,13 @@
 #!/usr/bin/env python
+from CutFinder.configs import ConfigRef
+from CutFinder.plots import Plotter
 from CutFinder.readers import ConfigReader
 
 import multiprocessing
+import os
+import json
 
+import numpy as np
 import typer
 from typing_extensions import Annotated
 from rich.console import Console
@@ -44,31 +49,50 @@ def main(
             if obj.refs is not None:
                 if ref not in obj.refs:
                     continue
-            ref.compute()  # if ref already computed, compute does nothing
+            if ((obj.scaling is not None and ref.scaling is None) or
+                (obj.scaling is None and ref.scaling is not None)):
+                raise ValueError(f"You are comparing Offline and Online pT between obj {obj.name} and ref {ref.name}. Please provide scaling functions for both configurations or none.")
+            # if already computed, compute does nothing
+            ref.compute()
             obj.compute()
             cuts = glob.algo(ref, obj, glob)
+            #inverse scale if scaling is applied
+            if obj.scaling is not None:
+                cut_bins = obj.inverse_scaling(np.array(glob.pt_bins))
+            else:
+                cut_bins = glob.pt_bins
 
-            ####DEBUG beteween obj:new_id and ref:custom (same samples but global score cut of 0)
-            print("Cuts found:", cuts)
-            from CutFinder.configs import ConfigRef
+            #compute rate with new cuts for full binning
+            clone = obj.clone(ConfigRef, WP=[cut_bins, cuts])
+            clone.compute()
+            clone.makeRate(glob.pt_bins, glob.maxRate)
 
-            new = obj.clone(ConfigRef, WP=[glob.pt_bins, cuts])
-            new.compute()
-            new.makeRate(glob.pt_bins, glob.maxRate)
-            print(f"Original object rates: {ref.rate}")
-            print(f"New object rates after applying cuts: {new.rate}")
-            import matplotlib.pyplot as plt
+            #create record and save cuts
+            obj.addToRecord(ref, "full", cut_bins, cuts, clone.rate)
 
-            plt.figure()
-            plt.plot(glob.pt_bins, ref.rate, label="Original object")
-            plt.plot(glob.pt_bins, new.rate, label="New object after cuts")
-            plt.xlabel("pT [GeV]")
-            plt.ylabel("Rate [kHz]")
-            plt.yscale("log")
-            plt.legend()
-            plt.show()
-            breakpoint()
-            #!NB in bin 1 i have the warning target rate higher than current rate. That's not true. Investigate. Line by line!!!
+    #prepare output folder
+    os.makedirs(output, exist_ok=True)
+    os.system(f"cp -f {path} {output}/{path.split('/')[-1]}")
+
+    plotter = Plotter()
+    for obj in objs:
+        os.makedirs(f"{output}/{obj.name}", exist_ok=True)
+        #copy index.php
+        os.system(f"cp {os.path.join(os.path.dirname(__file__),"externals/index.php")} {output}/{obj.name}/index.php")
+
+        #plots
+        plotter.plot_rates(glob, obj, "full", output=output)
+
+        #add glob pt_bins to record and save records.json
+        if isinstance(glob.pt_bins, np.ndarray):
+            obj.records["pt_bins"] = glob.pt_bins.tolist()
+        else:
+            obj.records["pt_bins"] = glob.pt_bins
+        with open(f"{output}/{obj.name}/records.json","w") as fp:
+            json.dump(obj.records, fp, indent=4)
+    breakpoint()
+
+
 
 if __name__ == "__main__":
     app()
