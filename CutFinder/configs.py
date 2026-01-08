@@ -19,9 +19,9 @@ class GlobalConf:
         pt_bins,
         maxRate=31038.96,
         algo=iterative_bin_cutter,
-        algo_kwargs = {},
+        algo_kwargs={},
         regressor=bayesian_blocks_gaussian,
-        regressor_kwargs = {},
+        regressor_kwargs={},
         fitrange: Optional[tuple[float, float]] = None,
     ):  # (PU200)
         self.pt_bins = pt_bins
@@ -31,6 +31,7 @@ class GlobalConf:
         self.fitrange = fitrange
         self.algo_kwargs = algo_kwargs
         self.regressor_kwargs = regressor_kwargs
+
 
 class Config:
     def __init__(
@@ -249,7 +250,7 @@ class ConfigObj(Config):
         self.records = dict()
 
     def addToRecord(self, ref, record_name, bins, cuts, rate, cuts_err=None, chi2=None):
-        mask = np.bitwise_and(cuts!=-np.inf, cuts>-9999.0)
+        mask = np.bitwise_and(cuts != -np.inf, cuts > -9999.0)
         bins = bins[mask]
         cuts = cuts[mask]
         if cuts_err is not None:
@@ -268,9 +269,16 @@ class ConfigObj(Config):
             ref_rate = ref.rate
 
         if ref.name not in self.records:
-            self.records[ref.name] = {"ref_rate": ref_rate, record_name : {"bins": bins, "cuts": cuts, "rate": rate}}
+            self.records[ref.name] = {
+                "ref_rate": ref_rate,
+                record_name: {"bins": bins, "cuts": cuts, "rate": rate},
+            }
         else:
-            self.records[ref.name][record_name] = {"bins": bins, "cuts": cuts, "rate": rate}
+            self.records[ref.name][record_name] = {
+                "bins": bins,
+                "cuts": cuts,
+                "rate": rate,
+            }
         if chi2 is not None:
             self.records[ref.name][record_name]["chi2"] = chi2
         if cuts_err is not None:

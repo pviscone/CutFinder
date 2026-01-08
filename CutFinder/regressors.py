@@ -1,16 +1,17 @@
 import numpy as np
 import numpy as np
 
+
 def bayesian_blocks_gaussian(x, y, sigma=None, penalty=3.0, fitrange=None):
     x = np.asarray(x)
     y = np.asarray(y)
-    x = x[y!=-np.inf]
+    x = x[y != -np.inf]
     if sigma is None:
         sigma = np.ones_like(y)
     else:
-        sigma = np.asarray(sigma)[y!=-np.inf]+1e-6  #avoid zero division
+        sigma = np.asarray(sigma)[y != -np.inf] + 1e-6  # avoid zero division
 
-    y = y[y!=-np.inf]
+    y = y[y != -np.inf]
 
     if fitrange is not None:
         y = y[np.bitwise_and(x >= fitrange[0], x <= fitrange[1])]
@@ -45,7 +46,7 @@ def bayesian_blocks_gaussian(x, y, sigma=None, penalty=3.0, fitrange=None):
     mean = np.zeros(n + 1)
 
     best[0] = 0.0
-    mean[0] = np.inf   # allows any first block
+    mean[0] = np.inf  # allows any first block
 
     for j in range(1, n + 1):
         for i in range(1, j + 1):
@@ -88,5 +89,5 @@ def bayesian_blocks_gaussian(x, y, sigma=None, penalty=3.0, fitrange=None):
     y_model = np.empty_like(y)
     for i0, i1, v in zip(change_points[:-1], change_points[1:], values):
         y_model[i0:i1] = v
-    chi2 = np.sum(((y - y_model) / sigma) ** 2)/len(values)
+    chi2 = np.sum(((y - y_model) / sigma) ** 2) / len(values)
     return edges, np.asarray(values), chi2

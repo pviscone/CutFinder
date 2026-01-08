@@ -53,8 +53,6 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
             cuts.append(q)
             cuts_err.append(sd)
 
-
-
     # Apply cut in the last bin
     if cuts[-1] != -np.inf:
         cut_mask = f"({obj.pt_branch} >= {glob.pt_bins[-1]} && {obj.score_branch} >= {cuts[-1]}) || ({obj.pt_branch} < {glob.pt_bins[-1]})"
@@ -86,11 +84,11 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
             # select objs in current pt bin
             .Redefine(
                 obj.score_branch,
-                f"{obj.score_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i+1]}]",
+                f"{obj.score_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i + 1]}]",
             )
             .Redefine(
                 obj.pt_branch,
-                f"{obj.pt_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i+1]}]",
+                f"{obj.pt_branch}[{obj.pt_branch} >= {glob.pt_bins[i]} && {obj.pt_branch} < {glob.pt_bins[i + 1]}]",
             )
             .Filter(f"{obj.pt_branch}.size() > 0")
             # Select max score
@@ -133,8 +131,6 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
                 cuts.append(q)
                 cuts_err.append(sd)
 
-
-
         if (
             cuts[-1] != -np.inf and i > 0
         ):  # it's useless to apply cut in the first bin (last iteration)
@@ -156,4 +152,3 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
     cuts = np.array(cuts[::-1])
     cuts_err = np.array(cuts_err[::-1])
     return cuts, cuts_err
-

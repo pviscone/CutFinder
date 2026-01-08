@@ -10,5 +10,5 @@ new_id = ConfigObj(
     score_branch="TkEleL2_idScore",
 )
 
-#Same sample but preappling a custom WP (idScore>0)
+# Same sample but preappling a custom WP (idScore>0)
 custom_ref = new_id.clone(ConfigRef, WP=[[0], [0]])
