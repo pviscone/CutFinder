@@ -24,18 +24,7 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
             .Filter("scores.size() > 0")
             .Define("max_score", "Max(scores)")
         ).AsNumpy(["max_score"])["max_score"]
-        # rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
-        rate_bin = (
-            (
-                obj.rdf.Filter(f"{obj.pt_branch}.size() > 0")
-                .Define("_maxPt", f"Max({obj.pt_branch})")
-                .Filter(f"_maxPt >= {glob.pt_bins[-1]}")
-                .Count()
-                .GetValue()
-            )
-            * glob.maxRate
-            / obj.TotEvents
-        )
+        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
 
         # Fraction of events to keep in the last pt bin
         f = ref.rate[-1] / rate_bin
