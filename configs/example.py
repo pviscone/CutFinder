@@ -6,7 +6,6 @@ glob = GlobalConf(
     pt_bins=np.concatenate([np.arange(0, 20, 2), np.arange(20, 65, 5)]),
     fitrange=(0, 60),
     algo_kwargs={
-        "n_bootstrap": 500,
     },
     regressor_kwargs={"penalty": 15.0},
 )
