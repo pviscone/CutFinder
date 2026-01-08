@@ -155,19 +155,20 @@ class Config:
             th = th.GetValue()
             h = hist.Hist(axis, storage=hist.storage.Weight())
 
-            for i in range(1, th.GetNbinsX() + 1):
+            for i in range(0, th.GetNbinsX() + 2):
                 h.fill(th.GetBinLowEdge(i), weight=th.GetBinContent(i))
 
-            h = (self.nEvents / self.TotEvents) * maxRate * h / h.integrate(0, 0).value
+            h_scaled = (self.nEvents / self.TotEvents) * maxRate * h / h.integrate(0, 0).value
 
             rate = np.array([])
             rate_err = np.array([])
             for idx, _ in enumerate(bins):
-                integral = h.integrate(0, idx)
+                integral = h_scaled.integrate(0, idx)
                 rate = np.append(rate, integral.value)
                 rate_err = np.append(rate_err, integral.variance**0.5)
             self.rate = rate
             self.rate_err = rate_err
+            return h
 
     def compute(self):
         if not self.isComputed:
