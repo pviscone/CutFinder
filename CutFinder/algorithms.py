@@ -40,6 +40,7 @@ def iterative_bin_cutter(ref, obj, glob):
                 f"Warning: target rate in bin -1 ({glob.pt_bins[-1]} GeV) is higher than current rate. No cut will be applied."
             )
             cuts.append(-np.inf)
+            cuts_err.append(0.0)
         elif len(scores) == 0:
             print(
                 f"Warning: no events in the last pt bin {glob.pt_bins[-1]} GeV. No cut will be applied."
