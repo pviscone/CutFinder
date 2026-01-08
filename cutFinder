@@ -51,7 +51,7 @@ def main(
     for ref in refs:
         for obj in objs:
             if obj.refs is not None:
-                if ref not in obj.refs:
+                if ref.name not in obj.refs:
                     continue
             if ((obj.scaling is not None and ref.scaling is None) or
                 (obj.scaling is None and ref.scaling is not None)):

@@ -234,7 +234,7 @@ class ConfigObj(Config):
         preprocess_function: Optional[Callable] = None,
         scaling_function: Optional[str] = None,
         tree: str = "Events",
-        refs: Optional[list[ConfigRef]] = None,
+        refs: Optional[list[str]] = None,
     ):
         super().__init__(
             samples_path=samples_path,
