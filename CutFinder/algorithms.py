@@ -1,14 +1,17 @@
+import hist
+from hist.intervals import ratio_uncertainty
 import numpy as np
 
 # ! NB if scaling is applied, the cuts are computed on the offline pT scale.
 #! Inverse scaling will be applied in the regressor to map back to online pT.
 
 
-def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
-    ref.makeRate(glob.pt_bins, glob.maxRate)
+def iterative_bin_cutter(ref, obj, glob):
+    ref_h = ref.makeRate(glob.pt_bins, glob.maxRate)
     cuts = []
     cuts_err = []
 
+    print(f"Processing pt bin -1: >= {glob.pt_bins[-1]} GeV (Obj: {obj.name}, Ref: {ref.name})")
     if ref.rate[-1] == 0.0:
         print(
             f"Warning: target rate in bin -1 ({glob.pt_bins[-1]} GeV) is zero (probably due to low stat). No cut will be applied."
@@ -26,6 +29,8 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
         ).AsNumpy(["max_score"])["max_score"]
         rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
 
+        nEvents_ref = ref_h[hist.loc(glob.pt_bins[-1])].value
+
         # Fraction of events to keep in the last pt bin
         f = ref.rate[-1] / rate_bin
 
@@ -42,16 +47,18 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
             cuts.append(-np.inf)
             cuts_err.append(0.0)
         else:
+            f_err = ratio_uncertainty(np.array([nEvents_ref]), np.array([len(scores)]), uncertainty_type="poisson-ratio") * (obj.TotEvents / ref.TotEvents)
+            f_err_up = f_err[1][0]
+            f_err_down = f_err[0][0]
             # find cut to achieve target rate in the last pt bin
             q = np.quantile(scores, 1 - f)
-            if len(scores) < 2 or n_bootstrap <= 0:
-                sd = 0.0
-            else:
-                idx = np.random.randint(0, len(scores), size=(n_bootstrap, len(scores)))
-                boot_q = np.quantile(scores[idx], 1 - f, axis=1)
-                sd = float(np.std(boot_q, ddof=1))
+            q_down = np.quantile(scores, 1 - min(f_err_up, 1.0))
+            q_up = np.quantile(scores, 1 - max(f_err_down, 0.0))
+
+            q_err = (q_up - q_down) / 2.0
+
             cuts.append(q)
-            cuts_err.append(sd)
+            cuts_err.append(float(q_err))
 
     # Apply cut in the last bin
     if cuts[-1] != -np.inf:
@@ -97,6 +104,8 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
         )
 
         rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
+        nEvents_ref = ref_h[hist.loc(glob.pt_bins[i])].value
+
         f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - ref.rate[i + 1])
         if f > 1.0:
             print(
@@ -119,17 +128,18 @@ def iterative_bin_cutter(ref, obj, glob, n_bootstrap=1000):
                 cuts.append(-np.inf)
                 cuts_err.append(0.0)
             else:
+                f_err = ratio_uncertainty(np.array([nEvents_ref]), np.array([len(scores)]), uncertainty_type="poisson-ratio") * (obj.TotEvents / ref.TotEvents)
+                f_err_up = f_err[1][0]
+                f_err_down = f_err[0][0]
+
                 q = np.quantile(scores, 1 - f)
-                if len(scores) < 2 or n_bootstrap <= 0:
-                    sd = 0.0
-                else:
-                    idx = np.random.randint(
-                        0, len(scores), size=(n_bootstrap, len(scores))
-                    )
-                    boot_q = np.quantile(scores[idx], 1 - f, axis=1)
-                    sd = float(np.std(boot_q, ddof=1))
+                q_down = np.quantile(scores, 1 - min(f_err_up, 1.0))
+                q_up = np.quantile(scores, 1 - max(f_err_down, 0.0))
+
+                q_err = (q_up - q_down) / 2.0
+
                 cuts.append(q)
-                cuts_err.append(sd)
+                cuts_err.append(float(q_err))
 
         if (
             cuts[-1] != -np.inf and i > 0
