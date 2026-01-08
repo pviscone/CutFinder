@@ -123,7 +123,6 @@ class Config:
     def runPreprocess(self):
         if self.func is not None and not self.isPreprocessed:
             self.rdf = self.func(self.rdf)
-            self.nEvents = self.rdf.Count().GetValue()
             self.isPreprocessed = True
 
     def getEntries(self):
