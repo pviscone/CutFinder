@@ -67,13 +67,7 @@ def main(
                 # if already computed, compute does nothing
                 ref.compute()
                 obj.compute()
-                cuts, cuts_err = glob.algo(ref, obj, glob, **glob.algo_kwargs)
-
-                #compute rate with new cuts for full binning
-                clone = obj.clone(ConfigRef, WP=[cut_bins, cuts])
-                clone.compute()
-                clone.makeRate(glob.pt_bins, glob.maxRate)
-                rate = clone.rate
+                cuts, cuts_err, rate = glob.algo(ref, obj, glob, **glob.algo_kwargs)
 
             else:
                 #load json record to get cuts

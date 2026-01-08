@@ -11,6 +11,8 @@ def iterative_bin_cutter(ref, obj, glob):
     cuts = []
     cuts_err = []
 
+    new_rate = []
+
     print(f"Processing pt {len(glob.pt_bins)-1}: >= {glob.pt_bins[-1]} GeV (Obj: {obj.name}, Ref: {ref.name})")
     if ref.rate[-1] == 0.0:
         print(
@@ -61,6 +63,9 @@ def iterative_bin_cutter(ref, obj, glob):
 
             cuts.append(q)
             cuts_err.append(float(q_err))
+
+        new_rate.append(len(scores[scores >= np.nan_to_num(cuts[-1], neginf = -9999)]) * (glob.maxRate / obj.TotEvents))
+
         print(f"\tCut found : {cuts[-1]} +- {cuts_err[-1]}\n", flush=True)
 
     # Apply cut in the last bin
@@ -106,7 +111,7 @@ def iterative_bin_cutter(ref, obj, glob):
             .AsNumpy(["max_score"])["max_score"]
         )
 
-        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + ref.rate[i + 1]
+        rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + new_rate[-1]
         nEvents_ref = ref_h[hist.loc(glob.pt_bins[i])].value
 
         f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - ref.rate[i + 1])
@@ -143,6 +148,8 @@ def iterative_bin_cutter(ref, obj, glob):
                 cuts.append(q)
                 cuts_err.append(float(q_err))
 
+        new_rate.append(len(scores[scores >= np.nan_to_num(cuts[-1], neginf = -9999)]) * (glob.maxRate / obj.TotEvents) + new_rate[-1])
+
         if (
             cuts[-1] != -np.inf and i > 0
         ):  # it's useless to apply cut in the first bin (last iteration)
@@ -163,4 +170,5 @@ def iterative_bin_cutter(ref, obj, glob):
 
     cuts = np.array(cuts[::-1])
     cuts_err = np.array(cuts_err[::-1])
-    return cuts, cuts_err
+    new_rate = np.array(new_rate[::-1])
+    return cuts, cuts_err, new_rate
