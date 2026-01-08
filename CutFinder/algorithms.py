@@ -11,10 +11,10 @@ def iterative_bin_cutter(ref, obj, glob):
     cuts = []
     cuts_err = []
 
-    print(f"Processing pt bin -1: >= {glob.pt_bins[-1]} GeV (Obj: {obj.name}, Ref: {ref.name})")
+    print(f"Processing pt {len(glob.pt_bins)-1}: >= {glob.pt_bins[-1]} GeV (Obj: {obj.name}, Ref: {ref.name})")
     if ref.rate[-1] == 0.0:
         print(
-            f"Warning: target rate in bin -1 ({glob.pt_bins[-1]} GeV) is zero (probably due to low stat). No cut will be applied."
+            f"Warning: target rate in {len(glob.pt_bins)-1} ({glob.pt_bins[-1]} GeV) is zero (probably due to low stat). No cut will be applied."
         )
         cuts.append(-np.inf)
         cuts_err.append(0.0)
@@ -27,6 +27,7 @@ def iterative_bin_cutter(ref, obj, glob):
             .Filter("scores.size() > 0")
             .Define("max_score", "Max(scores)")
         ).AsNumpy(["max_score"])["max_score"]
+
         rate_bin = len(scores) * (glob.maxRate / obj.TotEvents)
 
         nEvents_ref = ref_h[hist.loc(glob.pt_bins[-1])].value
@@ -37,7 +38,7 @@ def iterative_bin_cutter(ref, obj, glob):
         # check if f>=1 otherwise no cut can be applied
         if f > 1.0:
             print(
-                f"Warning: target rate in bin -1 ({glob.pt_bins[-1]} GeV) is higher than current rate. No cut will be applied."
+                f"Warning: target rate in bin {len(glob.pt_bins)-1} ({glob.pt_bins[-1]} GeV) is higher than current rate. No cut will be applied."
             )
             cuts.append(-np.inf)
             cuts_err.append(0.0)
@@ -51,7 +52,7 @@ def iterative_bin_cutter(ref, obj, glob):
             f_err = ratio_uncertainty(np.array([nEvents_ref]), np.array([len(scores)]), uncertainty_type="poisson-ratio") * (obj.TotEvents / ref.TotEvents)
             f_err_up = f_err[1][0]
             f_err_down = f_err[0][0]
-            # find cut to achieve target rate in the last pt bin
+
             q = np.quantile(scores, 1 - f)
             q_down = np.quantile(scores, 1 - min(f_err_up, 1.0))
             q_up = np.quantile(scores, 1 - max(f_err_down, 0.0))
@@ -60,6 +61,7 @@ def iterative_bin_cutter(ref, obj, glob):
 
             cuts.append(q)
             cuts_err.append(float(q_err))
+        print(f"\tCut found : {cuts[-1]} +- {cuts_err[-1]}\n", flush=True)
 
     # Apply cut in the last bin
     if cuts[-1] != -np.inf:
@@ -136,7 +138,6 @@ def iterative_bin_cutter(ref, obj, glob):
                 q = np.quantile(scores, 1 - f)
                 q_down = np.quantile(scores, 1 - min(f_err_up, 1.0))
                 q_up = np.quantile(scores, 1 - max(f_err_down, 0.0))
-
                 q_err = (q_up - q_down) / 2.0
 
                 cuts.append(q)
