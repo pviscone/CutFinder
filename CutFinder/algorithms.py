@@ -114,7 +114,7 @@ def iterative_bin_cutter(ref, obj, glob):
         rate_bin = len(scores) * (glob.maxRate / obj.TotEvents) + new_rate[-1]
         nEvents_ref = ref_h[hist.loc(glob.pt_bins[i])].value
 
-        f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - ref.rate[i + 1])
+        f = (ref.rate[i] - ref.rate[i + 1]) / (rate_bin - new_rate[-1])
         if f > 1.0:
             print(
                 f"Warning: target rate in bin {i} ({glob.pt_bins[i]} GeV) is higher than current rate. No cut will be applied."
