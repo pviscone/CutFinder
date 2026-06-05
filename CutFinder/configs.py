@@ -48,6 +48,15 @@ class Config:
         if samples_path is None:
             assert rate is not None
 
+        self.samples_path = samples_path
+        self.pt_branch = pt_branch
+        self.score_branch = score_branch
+        self.scaling_function = scaling_function
+
+        self.func = preprocess_function
+        self.rate = rate
+        self.tree = tree
+
         if scaling_function is not None:
             print(
                 "Warning: if scaling_function is provided, pt_bins in GlobalConf will be treated like Offline pT bins. The final thresholds will be inverse-mapped to Online pT."
@@ -66,14 +75,6 @@ class Config:
         else:
             self.scaling = None
             self.inverse_scaling = None
-
-        self.samples_path = samples_path
-        self.pt_branch = pt_branch
-        self.score_branch = score_branch
-
-        self.func = preprocess_function
-        self.rate = rate
-        self.tree = tree
 
         ####### to compute
         self.name = None
@@ -99,7 +100,7 @@ class Config:
             "pt_branch": self.pt_branch,
             "score_branch": self.score_branch,
             "preprocess_function": self.func,
-            "scaling_function": self.scaling,
+            "scaling_function": self.scaling_function,
             "rate": self.rate,
             "tree": self.tree,
         }
@@ -206,7 +207,7 @@ class ConfigRef(Config):
         samples_path: Optional[str] = None,
         pt_branch: str,
         preprocess_function: Optional[Callable] = None,
-        scaling_function: Optional[str] = None,
+        scaling_function: Optional[Callable] = None,
         rate: Optional[np.array] = None,
         tree: str = "Events",
         score_branch: Optional[str] = None,  # Needed only for applying WP
@@ -232,7 +233,7 @@ class ConfigObj(Config):
         pt_branch: str,
         score_branch: str,
         preprocess_function: Optional[Callable] = None,
-        scaling_function: Optional[str] = None,
+        scaling_function: Optional[Callable] = None,
         tree: str = "Events",
         refs: Optional[list[str]] = None,
     ):
