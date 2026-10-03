@@ -4,7 +4,8 @@ import numpy as np
 #!I.E. RDF must be the last argument of the function and they must return the modified RDF.
 
 
-def applyWP(pt_branch, score_branch, pt_bins, score_thresholds, rdf):
+def wp_mask_strings(pt_bins, score_thresholds):
+    """Format (pt_bins, score_thresholds) as C++ initializer-list strings for WP_mask."""
     pt_bins = np.array(pt_bins)
     argsortidx = np.argsort(
         pt_bins
@@ -14,6 +15,11 @@ def applyWP(pt_branch, score_branch, pt_bins, score_thresholds, rdf):
     score_thresholds = np.nan_to_num(score_thresholds, neginf=-9999.0).tolist()
     pt_bins = "{" + ", ".join(map(str, pt_bins)) + "}"
     score_thresholds = "{" + ", ".join(map(str, score_thresholds)) + "}"
+    return pt_bins, score_thresholds
+
+
+def applyWP(pt_branch, score_branch, pt_bins, score_thresholds, rdf):
+    pt_bins, score_thresholds = wp_mask_strings(pt_bins, score_thresholds)
     rdf = (
         rdf.Filter(f"{pt_branch}.size()>0")
         .Define(

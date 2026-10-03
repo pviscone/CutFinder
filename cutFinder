@@ -124,6 +124,8 @@ def main(
         #plots
         plotter.plot_rates(glob, obj, output=output)
         plotter.plot_cuts(obj, output=output)
+        if obj.eff_config is not None:
+            plotter.plot_efficiencies(obj, refs, output=output)
 
         #add glob pt_bins to record and save records.json
         if isinstance(glob.pt_bins, np.ndarray):

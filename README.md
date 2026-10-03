@@ -91,6 +91,18 @@ A cloned config always starts from scratch: it reopens the samples and re-runs t
 
 Note: `Config.compute()` materializes the pt (and score) columns with `.Cache()` in memory right after the preprocessing, so all the subsequent event loops (per-pt-bin cut search, WP-rate evaluation) run on cached data instead of re-reading the samples for every loop.
 
+### [`CutFinder.configs.ConfigEff`](CutFinder/configs.py)
+Attach an `eff_config=ConfigEff(...)` to a `ConfigObj` (and optionally to the `ConfigRef`) to get gen-level efficiency plots for the WPs that were found. For each obj/ref pair and for each variable (gen pt, gen eta) a plot with 3 curves is produced: reference selection, obj with the per-bin WP ("full") and obj with the regression-fitted WP.
+
+- `samples_path`: the (signal) sample used for the efficiency.
+- `reco`: dict with `"pt"`, `"eta"`, `"phi"` branch names (post-preprocessing); `"score"` is needed for the obj WPs.
+- `gen`: dict with `"pt"`, `"eta"`, `"phi"` gen branch names.
+- `preprocess_function`: selection defining the reco objects that enter the matching. **It must NOT filter events** and must mask the eta/phi branches like the pt branch: events where no reco object survives still contribute their gen electrons to the denominator (as unmatched).
+- Optional: `tree` (default `"Events"`), `deltaR` gen–reco matching cone (default 0.1), `gen_acceptance` expression restricting the gen denominator to the geometric acceptance (e.g. `"abs(GenEl_caloeta) < 1.479"` — without it, gen electrons that no reco collection can ever match pollute the efficiency), `pt_bins`, `eta_bins` for the efficiency histograms.
+- **CAVEAT**: restrict the eta_bins to the acceptance too when `gen_acceptance` is set, otherwise bins outside are just empty.
+
+The matching is "gen electron matched if any (WP-passing) reco object lies within dR"; the efficiency is `gen[matched] / gen[all]`. Columns are extracted with the ForeachSlot-based `CutFinder.extractor.extract_columns` (vector columns must NOT go through `AsNumpy`, which materializes slow object arrays).
+
 ## Offline-to-Online scaling
 You can pass online-to-offline scaling function as lambda function to config objects.
 

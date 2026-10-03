@@ -268,3 +268,103 @@ class Plotter:
         fig.savefig(f"{output}/{obj.name}/cuts.png")
         fig.savefig(f"{output}/{obj.name}/cuts.pdf")
         plt.close(fig)
+
+    @staticmethod
+    def _eff_curve(x, matched, bins):
+        """Efficiency histogram: count(matched)/count(all) with completeness errors."""
+        from hist.intervals import ratio_uncertainty
+
+        num, _ = np.histogram(x[matched], bins)
+        den, _ = np.histogram(x, bins)
+        eff = np.divide(num, den, out=np.full_like(den, np.nan, dtype=float), where=den > 0)
+        err_lo, err_hi = ratio_uncertainty(num, den, uncertainty_type="efficiency")
+        with np.errstate(invalid="ignore"):
+            err = np.nanmean(np.stack([err_lo, err_hi]), axis=0)
+        centers = 0.5 * (bins[:-1] + bins[1:])
+        return centers, eff, err
+
+    def plot_efficiencies(self, obj, refs, output=None):
+        """Gen-level efficiency of the WPs: reference vs obj(full) vs obj(fitted).
+
+        One figure per (ref, variable): variable in {gen pt, gen eta}. The
+        reference curve is the ref's own selection (its preprocess_function);
+        obj curves apply the per-bin ("full") and regression-fitted ("fitted")
+        score WPs found against that ref.
+        """
+        ref_by_name = {ref.name: ref for ref in refs}
+        for ref_name, rec in obj.records.items():
+            ref = ref_by_name.get(ref_name)
+            for var in ("pt", "eta"):
+                fig, (main_ax, ratio_ax) = plt.subplots(
+                    2,
+                    1,
+                    sharex=True,
+                    gridspec_kw={"height_ratios": [3, 1], "hspace": 0.0},
+                )
+                curves = {}
+                if ref is not None and ref.eff_config is not None:
+                    curves[ref_name] = (ref.eff_config, None)  # ref: no score WP
+                curves[f"{obj.name} (full)"] = (
+                    obj.eff_config,
+                    (rec["full"]["bins"], rec["full"]["cuts"]),
+                )
+                curves[f"{obj.name} (fitted)"] = (
+                    obj.eff_config,
+                    (rec["fitted"]["bins"], rec["fitted"]["cuts"]),
+                )
+
+                base_eff = None
+                for idx, (label, (eff_config, wp)) in enumerate(curves.items()):
+                    data = eff_config.get_gen_data(wp=wp)
+                    bins = eff_config.pt_bins if var == "pt" else eff_config.eta_bins
+                    centers, eff, err = self._eff_curve(data[var], data["matched"], bins)
+                    linestyle = {"full": "-", "fitted": "-."}.get(
+                        label.split("(")[-1].rstrip(")"), "--"
+                    )
+                    main_ax.errorbar(
+                        centers,
+                        eff,
+                        yerr=err,
+                        marker=markers[idx % len(markers)],
+                        linestyle=linestyle,
+                        linewidth=3,
+                        color=palette[idx % len(palette)],
+                        markeredgecolor="black",
+                        label=label,
+                    )
+                    if base_eff is None:
+                        base_eff = eff  # reference curve for the ratio panel
+                    elif base_eff is not None:
+                        with np.errstate(divide="ignore", invalid="ignore"):
+                            ratio = eff / base_eff
+                        ratio_ax.plot(
+                            centers,
+                            ratio,
+                            marker=markers[idx % len(markers)],
+                            linestyle=linestyle,
+                            color=palette[idx % len(palette)],
+                            markeredgecolor="black",
+                        )
+
+                main_ax.legend(loc="lower right", fontsize="small")
+                main_ax.set_title(f"{obj.name} Efficiency")
+                main_ax.set_ylabel("Efficiency")
+                main_ax.set_ylim(0, 1.09)
+                main_ax.grid(which="major", linestyle="--", linewidth=0.5, alpha=0.7)
+                ratio_ax.set_ylabel("Obj/Ref")
+                ratio_ax.set_ylim(0.6, 1.4)
+                ratio_ax.axhline(
+                    1.0, color="black", linestyle="--", linewidth=1, zorder=-99, alpha=0.7
+                )
+                if var == "pt":
+                    ratio_ax.set_xlabel("Gen $p_T$ [GeV]")
+                    ratio_ax.set_xlim(0, 100)
+                    suffix = "efficiency_vs_genPt"
+                else:
+                    ratio_ax.set_xlabel("Gen $\\eta$")
+                    suffix = "efficiency_vs_genEta"
+                if len(obj.records) > 1:
+                    suffix = f"{suffix}_vs_{ref_name}"
+                fig.savefig(f"{output}/{obj.name}/{suffix}.png")
+                fig.savefig(f"{output}/{obj.name}/{suffix}.pdf")
+                plt.close(fig)

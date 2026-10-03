@@ -1,5 +1,6 @@
 from CutFinder.algorithms import iterative_bin_cutter
-from CutFinder.functions import applyWP
+from CutFinder.functions import applyWP, wp_mask_strings
+from CutFinder.extractor import extract_columns
 from CutFinder.regressors import bayesian_blocks_gaussian
 
 from typing import Optional
@@ -33,6 +34,19 @@ class GlobalConf:
         self.regressor_kwargs = regressor_kwargs
 
 
+def open_rdf(samples_path: str, tree: str = "Events"):
+    """Open an RDataFrame on a TChain; supports {start..end} numeric ranges in the path."""
+    chain = ROOT.TChain(tree)
+    if "{" in samples_path or "}" in samples_path:
+        range_part = samples_path.split("{")[1].split("}")[0]
+        start, end = map(int, range_part.split(".."))
+        for i in range(start, end + 1):
+            chain.Add(samples_path.replace("{" + range_part + "}", str(i)))
+    else:
+        chain.Add(samples_path)
+    return ROOT.RDataFrame(chain)
+
+
 class Config:
     def __init__(
         self,
@@ -44,6 +58,7 @@ class Config:
         scaling_function: Optional[Callable] = None,
         rate: Optional[np.array] = None,
         tree: str = "Events",
+        eff_config: Optional["ConfigEff"] = None,
     ):
         if samples_path is None:
             assert rate is not None
@@ -56,6 +71,7 @@ class Config:
         self.func = preprocess_function
         self.rate = rate
         self.tree = tree
+        self.eff_config = eff_config
 
         if scaling_function is not None:
             print(
@@ -103,6 +119,7 @@ class Config:
             "scaling_function": self.scaling_function,
             "rate": self.rate,
             "tree": self.tree,
+            "eff_config": self.eff_config,
         }
         base_kwargs.update(kwargs)
         filtered = {k: v for k, v in base_kwargs.items() if k in params}
@@ -133,15 +150,7 @@ class Config:
 
     def loadRDF(self):
         if self.rdf is None:
-            chain = ROOT.TChain(self.tree)
-            if "{" in self.samples_path or "}" in self.samples_path:
-                range_part = self.samples_path.split("{")[1].split("}")[0]
-                start, end = map(int, range_part.split(".."))
-                for i in range(start, end + 1):
-                    chain.Add(self.samples_path.replace("{" + range_part + "}", str(i)))
-            else:
-                chain.Add(self.samples_path)
-            self.rdf = ROOT.RDataFrame(chain)
+            self.rdf = open_rdf(self.samples_path, self.tree)
             self.TotEvents = self.rdf.Count().GetValue()
 
     def runPreprocess(self):
@@ -228,8 +237,84 @@ class Config:
 
 
 class ConfigEff:
-    pass
-    # implement at the end to plot also efficiencies with the WP that were found
+    """Gen-level efficiency evaluation attached to a ConfigObj/ConfigRef.
+
+    Signal sample -> preprocess_function -> (optional) WP applied to the reco
+    objects -> gen electrons geometrically matched (dR) to a surviving reco
+    object. Efficiency = gen[matched] / gen[all], vs gen pt and vs gen eta.
+    """
+
+    def __init__(
+        self,
+        *,
+        samples_path: str,
+        reco: dict,  # {"pt": ..., "eta": ..., "phi": ..., "score": ... (needed for WP)}
+        gen: dict,  # {"pt": ..., "eta": ..., "phi": ...}
+        preprocess_function: Optional[Callable] = None,
+        tree: str = "Events",
+        deltaR: float = 0.1,
+        gen_acceptance: Optional[str] = None,  # e.g. "abs(GenEl_caloeta) < 1.479"
+        pt_bins: Optional[np.ndarray] = None,
+        eta_bins: Optional[np.ndarray] = None,
+    ):
+        self.samples_path = samples_path
+        self.reco = reco
+        self.gen = gen
+        self.func = preprocess_function
+        self.tree = tree
+        self.deltaR = deltaR
+        self.gen_acceptance = gen_acceptance
+        self.pt_bins = np.arange(0, 102, 2) if pt_bins is None else np.asarray(pt_bins)
+        self.eta_bins = (
+            np.arange(-1.6, 1.61, 0.1) if eta_bins is None else np.asarray(eta_bins)
+        )
+
+    def get_gen_data(self, wp=None):
+        """Run one event loop; return flat arrays {"pt", "eta", "matched"}.
+
+        wp: optional (pt_bins, score_cuts) applied to the reco objects before
+        the gen matching. Requires reco["score"].
+        """
+        rdf = open_rdf(self.samples_path, self.tree)
+        if self.func is not None:
+            rdf = self.func(rdf)
+        reco_eta, reco_phi = self.reco["eta"], self.reco["phi"]
+        if wp is not None:
+            # Mask the reco objects per event; NO event Filter: events where no
+            # reco object passes the WP still contribute their gen electrons to
+            # the denominator as unmatched.
+            if "score" not in self.reco:
+                raise ValueError("Applying a WP requires reco['score'] in ConfigEff")
+            pt_bins, score_cuts = wp_mask_strings(wp[0], wp[1])
+            rdf = rdf.Define(
+                "gen_eff_WPmask",
+                f"WP_mask({self.reco['pt']}, {self.reco['score']}, {pt_bins}, {score_cuts})",
+            )
+            rdf = rdf.Define("gen_eff_recoEta", f"{reco_eta}[gen_eff_WPmask]")
+            rdf = rdf.Define("gen_eff_recoPhi", f"{reco_phi}[gen_eff_WPmask]")
+            reco_eta, reco_phi = "gen_eff_recoEta", "gen_eff_recoPhi"
+        rdf = rdf.Define(
+            "gen_matched",
+            f"gen_reco_match({self.gen['eta']}, {self.gen['phi']}, "
+            f"{reco_eta}, {reco_phi}, {self.deltaR})",
+        )
+        gen_pt, gen_eta, matched = self.gen["pt"], self.gen["eta"], "gen_matched"
+        if self.gen_acceptance is not None:
+            # Restrict the gen denominator to the geometric acceptance (e.g.
+            # barrel), so that gen electrons no reco collection can ever match
+            # do not pollute the efficiency.
+            rdf = rdf.Define("gen_eff_acc", self.gen_acceptance)
+            rdf = (rdf.Define("gen_eff_pt", f"{gen_pt}[gen_eff_acc]")
+                   .Define("gen_eff_eta", f"{gen_eta}[gen_eff_acc]")
+                   .Define("gen_eff_matched", f"gen_matched[gen_eff_acc]"))
+            gen_pt, gen_eta, matched = "gen_eff_pt", "gen_eff_eta", "gen_eff_matched"
+        cols = [gen_pt, gen_eta, matched]
+        data = extract_columns(rdf, cols)
+        return {
+            "pt": data[gen_pt],
+            "eta": data[gen_eta],
+            "matched": data[matched] != 0,
+        }
 
 
 class ConfigRef(Config):
@@ -244,6 +329,7 @@ class ConfigRef(Config):
         tree: str = "Events",
         score_branch: Optional[str] = None,  # Needed only for applying WP
         WP: Optional[tuple[Iterable, Iterable]] = None,
+        eff_config: Optional[ConfigEff] = None,
     ):
         super().__init__(
             samples_path=samples_path,
@@ -253,6 +339,7 @@ class ConfigRef(Config):
             scaling_function=scaling_function,
             rate=rate,
             tree=tree,
+            eff_config=eff_config,
         )
         self.WP = WP
 
@@ -268,6 +355,7 @@ class ConfigObj(Config):
         scaling_function: Optional[Callable] = None,
         tree: str = "Events",
         refs: Optional[list[str]] = None,
+        eff_config: Optional[ConfigEff] = None,
     ):
         super().__init__(
             samples_path=samples_path,
@@ -277,6 +365,7 @@ class ConfigObj(Config):
             scaling_function=scaling_function,
             rate=None,
             tree=tree,
+            eff_config=eff_config,
         )
 
         self.refs = refs

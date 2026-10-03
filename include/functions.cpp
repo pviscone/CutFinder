@@ -27,4 +27,20 @@ RVec<bool> WP_mask(const RVecF &pt, const RVecF &score,
   return mask;
 }
 
+RVec<bool> gen_reco_match(const RVecF &gen_eta, const RVecF &gen_phi,
+                          const RVecF &reco_eta, const RVecF &reco_phi,
+                          double deltaR) {
+  // Per gen-level object: is there at least one reco object within deltaR?
+  RVec<bool> matched(gen_eta.size(), false);
+  for (size_t g = 0; g < gen_eta.size(); ++g) {
+    for (size_t r = 0; r < reco_eta.size(); ++r) {
+      if (DeltaR(gen_eta[g], reco_eta[r], gen_phi[g], reco_phi[r]) < deltaR) {
+        matched[g] = true;
+        break;
+      }
+    }
+  }
+  return matched;
+}
+
 #endif // !FUNCTIONS_CPP
