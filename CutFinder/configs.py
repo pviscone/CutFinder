@@ -34,6 +34,12 @@ class GlobalConf:
         self.regressor_kwargs = regressor_kwargs
 
 
+# Keepalive registry: RDataFrame does NOT take ownership of the TChain; if the
+# chain is garbage-collected, every lazy action on the rdf dereferences freed
+# memory (segfault, nondeterministic). Keep every chain alive for the process.
+_chains: list = []
+
+
 def open_rdf(samples_path: str, tree: str = "Events"):
     """Open an RDataFrame on a TChain; supports {start..end} numeric ranges in the path."""
     chain = ROOT.TChain(tree)
@@ -44,6 +50,7 @@ def open_rdf(samples_path: str, tree: str = "Events"):
             chain.Add(samples_path.replace("{" + range_part + "}", str(i)))
     else:
         chain.Add(samples_path)
+    _chains.append(chain)
     return ROOT.RDataFrame(chain)
 
 
