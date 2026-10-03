@@ -108,6 +108,29 @@ class Config:
         filtered = {k: v for k, v in base_kwargs.items() if k in params}
         return cls(**filtered)
 
+    def clone_reusing_rdf(self, cls=None, **kwargs):
+        """Like clone(), but reuses the already-processed rdf (with its
+        in-memory column cache) instead of reopening the samples and
+        re-running the preprocessing from scratch.
+
+        Only valid if the clone keeps the same samples_path and
+        preprocess_function, so the processed columns are identical.
+        """
+        new = self.clone(cls, **kwargs)
+        if not self.isPreprocessed or self.rdf is None:
+            raise RuntimeError(
+                "clone_reusing_rdf() requires the source Config to be already computed."
+            )
+        if new.samples_path != self.samples_path or new.func != self.func:
+            raise ValueError(
+                "clone_reusing_rdf() requires the same samples_path and "
+                "preprocess_function; use clone() to change them."
+            )
+        new.rdf = self.rdf
+        new.TotEvents = self.TotEvents
+        new.isPreprocessed = True
+        return new
+
     def loadRDF(self):
         if self.rdf is None:
             chain = ROOT.TChain(self.tree)
@@ -178,7 +201,16 @@ class Config:
                     f"[bold green]Computing {self.__class__.__name__}:[/bold green]\n\t{self.name}\n"
                 )
             self.loadRDF()
-            self.runPreprocess()
+            # Materialize the pt (and score) columns in memory once: the
+            # per-pt-bin cut search and WP-rate evaluation run several event
+            # loops on this rdf, and without a cache each loop would re-run
+            # the whole chain from the source files.
+            if not self.isPreprocessed:
+                self.runPreprocess()
+                cache_cols = [self.pt_branch]
+                if self.score_branch is not None:
+                    cache_cols.append(self.score_branch)
+                self.rdf = self.rdf.Cache(cache_cols)
             self.apply_WP()
             self.rdf = self.rdf.Filter(f"{self.pt_branch}.size()>0")
             self.scale()

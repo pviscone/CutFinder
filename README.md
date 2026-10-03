@@ -87,6 +87,10 @@ Config objects can be cloned and manipulated using the `.clone(new_arg=...)` met
 
 You can even switch from a `ConfigObj` to a `ConfigRef` and viceversa with `obj_conf.clone(ConfigRef, new_arg=...)`
 
+A cloned config always starts from scratch: it reopens the samples and re-runs the preprocessing on first use. If the clone keeps the same `samples_path` and `preprocess_function` and the source config was already computed (as in `cutFinder`'s fitted-WP evaluation), use `.clone_reusing_rdf(new_arg=...)` instead: it reuses the already-processed (and cached, see below) RDataFrame, avoiding a second full pass over the samples.
+
+Note: `Config.compute()` materializes the pt (and score) columns with `.Cache()` in memory right after the preprocessing, so all the subsequent event loops (per-pt-bin cut search, WP-rate evaluation) run on cached data instead of re-reading the samples for every loop.
+
 ## Offline-to-Online scaling
 You can pass online-to-offline scaling function as lambda function to config objects.
 

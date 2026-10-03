@@ -94,7 +94,8 @@ def main(
                 fitrange=glob.fitrange,
                 **glob.regressor_kwargs,
             )
-            fitted_clone = obj.clone(
+            obj.compute()  # no-op if already computed (regressor_only mode)
+            fitted_clone = obj.clone_reusing_rdf(
                 ConfigRef, WP=[fitted_cut_bins, fitted_cuts]
             )
             fitted_clone.compute()
