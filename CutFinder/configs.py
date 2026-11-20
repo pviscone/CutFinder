@@ -101,6 +101,7 @@ class Config:
 
         ####### to compute
         self.name = None
+        self.display_name = None  # optional pretty name for plot labels
         self.rdf = None
         self.TotEvents = None
         self.nEvents = None

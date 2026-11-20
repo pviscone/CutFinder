@@ -122,8 +122,8 @@ def main(
         os.system(f"cp {os.path.join(os.path.dirname(__file__),"externals/index.php")} {output}/{obj.name}/index.php")
 
         #plots
-        plotter.plot_rates(glob, obj, output=output)
-        plotter.plot_cuts(obj, output=output)
+        plotter.plot_rates(glob, obj, refs, output=output)
+        plotter.plot_cuts(obj, refs, output=output)
         if obj.eff_config is not None:
             plotter.plot_efficiencies(obj, refs, output=output)
 

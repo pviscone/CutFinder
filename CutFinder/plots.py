@@ -61,12 +61,20 @@ mpl.rcParams["path.simplify"] = True
 markers = ["v", "^", "X", "P", "d", "*", "p", "o"]
 
 
+def display_names(*configs):
+    """Map config names to their display names for plot labels (fallback: the name)."""
+    return {cfg.name: getattr(cfg, "display_name", None) or cfg.name for cfg in configs}
+
+
 class Plotter:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
-    def plot_rates(self, glob, obj, output=None):
+    def plot_rates(self, glob, obj, refs, output=None):
         isScaled = obj.isScaled  # check if both are scaled already performed in main
+
+        names = display_names(obj, *refs)
+        obj_label = names[obj.name]
 
         records = obj.records
         pt_bins = glob.pt_bins
@@ -82,11 +90,10 @@ class Plotter:
             [pe.Stroke(linewidth=1.5, foreground="magenta", alpha=0.7), pe.Normal()]
         )
         custom_lines = [
-            Line2D([0], [0], color="black", lw=2, linestyle="--"),
             Line2D([0], [0], color="black", lw=3, linestyle="-"),
             fitted_line_legend,
         ]
-        labels = ["Reference", obj.name + "(full)", obj.name + "(fitted)"]
+        labels = [f"{obj_label} (full)", f"{obj_label} (fitted)"]
 
         for idx, (ref, ref_dict) in enumerate(records.items()):
             # plot obj rate
@@ -151,7 +158,7 @@ class Plotter:
                 color=palette[idx % len(palette)],
             )
 
-            labels.append(f"{ref}")
+            labels.append(names.get(ref, ref))
             custom_lines.append(
                 Line2D(
                     [0],
@@ -169,7 +176,12 @@ class Plotter:
         # scale
         main_ax.set_yscale("log")
         # labels
-        main_ax.set_title(f"{obj.name}")
+        hep.cms.label(
+            llabel="Phase-2 Simulation Preliminary",
+            rlabel="PU 200 (14 TeV)",
+            ax=main_ax,
+            fontsize=13,
+        )
         main_ax.set_ylabel("Rate [kHz]")
         ratio_ax.set_ylabel("Obj/Ref")
         if isScaled:
@@ -186,19 +198,22 @@ class Plotter:
         # lims
         main_ax.set_ylim(0.3, glob.maxRate * 10)
         ratio_ax.set_ylim(0, 2)
-        fig.savefig(f"{output}/{obj.name}/rates.png")
-        fig.savefig(f"{output}/{obj.name}/rates.pdf")
+        fig.savefig(f"{output}/{obj.name}/rates.png", bbox_inches="tight")
+        fig.savefig(f"{output}/{obj.name}/rates.pdf", bbox_inches="tight")
         plt.close(fig)
 
-    def plot_cuts(self, obj, output=None):
+    def plot_cuts(self, obj, refs, output=None):
         records = obj.records
+
+        names = display_names(obj, *refs)
+        obj_label = names[obj.name]
 
         fig, ax = plt.subplots()
         custom_lines = [
             Line2D([0], [0], color="black", lw=2, linestyle="--"),
             Line2D([0], [0], color="black", lw=2, linestyle="-"),
         ]
-        labels = [obj.name, f"{obj.name} (fitted)"]
+        labels = [obj_label, f"{obj_label} (fitted)"]
         for idx, (ref, ref_dict) in enumerate(records.items()):
             fitted_bins = np.array(ref_dict["fitted"]["bins"])
             fitted_cuts = np.array(ref_dict["fitted"]["cuts"])
@@ -254,10 +269,15 @@ class Plotter:
                 )
             )
             # labels.append(ref + f'\n$\chi^2$/ndf: {ref_dict["fitted"]["chi2"]:.4f}')
-            labels.append(ref)
+            labels.append(names.get(ref, ref))
 
         ax.legend(custom_lines, labels, loc="upper right", fontsize="small")
-        ax.set_title(f"{obj.name} Cuts")
+        hep.cms.label(
+            llabel="Phase-2 Simulation Preliminary",
+            rlabel="PU 200 (14 TeV)",
+            ax=ax,
+            fontsize=13,
+        )
         ax.set_xlabel("Online pT [GeV]")
         ax.set_ylabel("Cut Value (score)")
 
@@ -265,8 +285,8 @@ class Plotter:
         if y_min > -1 and y_max < 1:
             ax.set_ylim(-1, 1)
         ax.grid(which="major", linestyle="--", linewidth=0.5, alpha=0.7)
-        fig.savefig(f"{output}/{obj.name}/cuts.png")
-        fig.savefig(f"{output}/{obj.name}/cuts.pdf")
+        fig.savefig(f"{output}/{obj.name}/cuts.png", bbox_inches="tight")
+        fig.savefig(f"{output}/{obj.name}/cuts.pdf", bbox_inches="tight")
         plt.close(fig)
 
     @staticmethod
@@ -292,6 +312,8 @@ class Plotter:
         score WPs found against that ref.
         """
         ref_by_name = {ref.name: ref for ref in refs}
+        names = display_names(obj, *refs)
+        obj_label = names[obj.name]
         for ref_name, rec in obj.records.items():
             ref = ref_by_name.get(ref_name)
             for var in ("pt", "eta"):
@@ -303,12 +325,15 @@ class Plotter:
                 )
                 curves = {}
                 if ref is not None and ref.eff_config is not None:
-                    curves[ref_name] = (ref.eff_config, None)  # ref: no score WP
-                curves[f"{obj.name} (full)"] = (
+                    curves[names.get(ref_name, ref_name)] = (
+                        ref.eff_config,
+                        None,
+                    )  # ref: no score WP
+                curves[f"{obj_label} (full)"] = (
                     obj.eff_config,
                     (rec["full"]["bins"], rec["full"]["cuts"]),
                 )
-                curves[f"{obj.name} (fitted)"] = (
+                curves[f"{obj_label} (fitted)"] = (
                     obj.eff_config,
                     (rec["fitted"]["bins"], rec["fitted"]["cuts"]),
                 )
@@ -347,7 +372,12 @@ class Plotter:
                         )
 
                 main_ax.legend(loc="lower right", fontsize="small")
-                main_ax.set_title(f"{obj.name} Efficiency")
+                hep.cms.label(
+                    llabel="Phase-2 Simulation Preliminary",
+                    rlabel="PU 200 (14 TeV)",
+                    ax=main_ax,
+                    fontsize=13,
+                )
                 main_ax.set_ylabel("Efficiency")
                 main_ax.set_ylim(0, 1.09)
                 main_ax.grid(which="major", linestyle="--", linewidth=0.5, alpha=0.7)
@@ -365,6 +395,6 @@ class Plotter:
                     suffix = "efficiency_vs_genEta"
                 if len(obj.records) > 1:
                     suffix = f"{suffix}_vs_{ref_name}"
-                fig.savefig(f"{output}/{obj.name}/{suffix}.png")
-                fig.savefig(f"{output}/{obj.name}/{suffix}.pdf")
+                fig.savefig(f"{output}/{obj.name}/{suffix}.png", bbox_inches="tight")
+                fig.savefig(f"{output}/{obj.name}/{suffix}.pdf", bbox_inches="tight")
                 plt.close(fig)
