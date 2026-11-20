@@ -48,6 +48,27 @@ def main(
     glob = config_reader.glob
     objs = config_reader.objs
     refs = config_reader.refs
+
+    # Online-to-offline scaling from the efficiency turn-ons: when both sides of
+    # every comparison provide an eff_config (and no explicit scaling_function),
+    # derive the scaling per config (turn-on fit + 95% WP + linear map). The
+    # pt_bins are then offline pT bins and the WP is derived on the offline rate.
+    pairs = [
+        (ref, obj)
+        for ref in refs
+        for obj in objs
+        if obj.refs is None or ref.name in obj.refs
+    ]
+    if pairs and all(
+        ref.eff_config is not None and obj.eff_config is not None for ref, obj in pairs
+    ):
+        for cfg in dict.fromkeys(c for pair in pairs for c in pair):
+            if cfg.scaling_function is None:
+                a, b = cfg.derive_scaling(
+                    savefolder=f"{output}/scaling/{cfg.name}", **glob.scaling_kwargs
+                )
+                print(f"Derived scaling for {cfg.name}: offline = {a:.3f} * online + {b:.3f}")
+
     for ref in refs:
         for obj in objs:
             if obj.refs is not None:
@@ -57,17 +78,23 @@ def main(
                 (obj.scaling is None and ref.scaling is not None)):
                 raise ValueError(f"You are comparing Offline and Online pT between obj {obj.name} and ref {ref.name}. Please provide scaling functions for both configurations or none.")
 
-            #inverse scale if scaling is applied
+            # glob.pt_bins is the ONLINE pT binning of the obj (the WP
+            # thresholds); the rate scan runs on the corresponding OFFLINE
+            # bins when a scaling is active, so that obj and ref are compared
+            # at equal offline thresholds
             if obj.scaling is not None:
-                cut_bins = obj.inverse_scaling(np.array(glob.pt_bins))
+                scan_bins = obj.forward_scaling(np.array(glob.pt_bins))
             else:
-                cut_bins = glob.pt_bins
+                scan_bins = np.array(glob.pt_bins)
+            cut_bins = glob.pt_bins
 
             if not regressor_only:
                 # if already computed, compute does nothing
                 ref.compute()
                 obj.compute()
-                cuts, cuts_err, rate = glob.algo(ref, obj, glob, **glob.algo_kwargs)
+                cuts, cuts_err, rate = glob.algo(
+                    ref, obj, glob, bins=scan_bins, **glob.algo_kwargs
+                )
 
             else:
                 #load json record to get cuts
@@ -99,7 +126,7 @@ def main(
                 ConfigRef, WP=[fitted_cut_bins, fitted_cuts]
             )
             fitted_clone.compute()
-            fitted_clone.makeRate(glob.pt_bins, glob.maxRate)
+            fitted_clone.makeRate(scan_bins, glob.maxRate)
 
             #create record and save cuts
             obj.addToRecord(
@@ -124,14 +151,25 @@ def main(
         #plots
         plotter.plot_rates(glob, obj, refs, output=output)
         plotter.plot_cuts(obj, refs, output=output)
+        if obj.isScaled:
+            # same WP also shown on the other pT scale
+            plotter.plot_rates(glob, obj, refs, output=output, online_axis=True)
+            plotter.plot_cuts(obj, refs, output=output, offline_axis=True)
         if obj.eff_config is not None:
             plotter.plot_efficiencies(obj, refs, output=output)
 
-        #add glob pt_bins to record and save records.json
+        #add glob pt_bins and derived scaling to record and save records.json
         if isinstance(glob.pt_bins, np.ndarray):
             obj.records["pt_bins"] = glob.pt_bins.tolist()
         else:
             obj.records["pt_bins"] = glob.pt_bins
+        scaling = {
+            cfg.name: list(cfg.scaling_params)
+            for cfg in dict.fromkeys([obj, *refs])
+            if cfg.scaling_params is not None
+        }
+        if scaling:
+            obj.records["scaling"] = scaling
         with open(f"{output}/{obj.name}/records.json","w") as fp:
             json.dump(obj.records, fp, indent=4)
 

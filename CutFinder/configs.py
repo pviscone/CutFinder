@@ -2,6 +2,7 @@ from CutFinder.algorithms import iterative_bin_cutter
 from CutFinder.functions import applyWP, wp_mask_strings
 from CutFinder.extractor import extract_columns
 from CutFinder.regressors import bayesian_blocks_gaussian
+from CutFinder.scaling import derive_scaling_params
 
 from typing import Optional
 from collections.abc import Callable, Iterable
@@ -24,6 +25,7 @@ class GlobalConf:
         regressor=bayesian_blocks_gaussian,
         regressor_kwargs={},
         fitrange: Optional[tuple[float, float]] = None,
+        scaling_kwargs={},
     ):  # (PU200)
         self.pt_bins = pt_bins
         self.maxRate = maxRate
@@ -32,6 +34,7 @@ class GlobalConf:
         self.fitrange = fitrange
         self.algo_kwargs = algo_kwargs
         self.regressor_kwargs = regressor_kwargs
+        self.scaling_kwargs = scaling_kwargs
 
 
 # Keepalive registry: RDataFrame does NOT take ownership of the TChain; if the
@@ -80,24 +83,12 @@ class Config:
         self.tree = tree
         self.eff_config = eff_config
 
+        self.scaling = None
+        self.forward_scaling = None
+        self.inverse_scaling = None
+        self.scaling_params = None  # (a, b) when derived from the eff_config turn-on
         if scaling_function is not None:
-            print(
-                "Warning: if scaling_function is provided, pt_bins in GlobalConf will be treated like Offline pT bins. The final thresholds will be inverse-mapped to Online pT."
-            )
-            print(
-                "If both scaling_function and rate are provided, scaling_function will only inverse-map the final thresholds, rate will not be re-computed."
-            )
-            x = sp.Symbol("$OnlinePt")
-            y = sp.Symbol("$OfflinePt")
-            scaling_function = scaling_function(x)
-            inverse_scaling = sp.solve(sp.Eq(y, scaling_function), x)[-1]
-            self.scaling = sp.ccode(scaling_function).replace(
-                "$OnlinePt", self.pt_branch
-            )
-            self.inverse_scaling = sp.lambdify(y, inverse_scaling, "numpy")
-        else:
-            self.scaling = None
-            self.inverse_scaling = None
+            self.set_scaling(scaling_function)
 
         ####### to compute
         self.name = None
@@ -113,6 +104,54 @@ class Config:
         self.isScaled = False
         self.isWPApplied = False
         self.isComputed = False
+
+    def set_scaling(self, scaling_function):
+        """Install an online-to-offline scaling, offline = scaling_function(online).
+
+        scaling_function maps a sympy symbol to a sympy expression. The pt_bins
+        in GlobalConf are the ONLINE pT binning of the obj (the WP thresholds);
+        the rate scan runs on the corresponding offline bins, so that obj and
+        ref are compared at equal offline thresholds.
+        """
+        print(
+            "Warning: with a scaling function pt_bins in GlobalConf is the online "
+            "pT binning; the rate comparison runs at equal OFFLINE pT thresholds."
+        )
+        print(
+            "If both scaling_function and rate are provided, the rate is not re-computed."
+        )
+        x = sp.Symbol("$OnlinePt")
+        y = sp.Symbol("$OfflinePt")
+        expr = scaling_function(x)
+        inverse_scaling = sp.solve(sp.Eq(y, expr), x)[-1]
+        self.scaling_function = scaling_function
+        self.scaling = sp.ccode(expr).replace("$OnlinePt", self.pt_branch)
+        self.forward_scaling = sp.lambdify(x, expr, "numpy")
+        self.inverse_scaling = sp.lambdify(y, inverse_scaling, "numpy")
+
+    def derive_scaling(self, savefolder=None, label=None, **kwargs):
+        """Derive the online-to-offline scaling from the eff_config turn-on.
+
+        Fits the efficiency turn-on vs gen pT for a set of online pT cuts,
+        extracts the 95% WP of each and linear-fits them (turn-on fit + linear
+        map, as in the TkEleRegression rate studies). The fitted turn-ons and
+        the linear fit are saved in savefolder. Extra kwargs (pt_cuts,
+        target_eff, bins) go to CutFinder.scaling.derive_scaling_params.
+        """
+        if self.eff_config is None:
+            raise ValueError(f"{self.name}: derive_scaling requires an eff_config.")
+        data = self.eff_config.get_gen_data()
+        self.scaling_params = derive_scaling_params(
+            data["reco_pt"],
+            data["pt"],
+            data["matched"],
+            savefolder=savefolder,
+            label=label or self.display_name or self.name,
+            **kwargs,
+        )
+        a, b = self.scaling_params
+        self.set_scaling(lambda x, a=a, b=b: a * x + b)
+        return self.scaling_params
 
     def clone(self, cls=None, **kwargs):
         if cls is None:
@@ -154,6 +193,9 @@ class Config:
         new.rdf = self.rdf
         new.TotEvents = self.TotEvents
         new.isPreprocessed = True
+        # the shared rdf is already scaled when the source was computed with a
+        # scaling function: the clone must not scale it a second time
+        new.isScaled = self.isScaled
         return new
 
     def loadRDF(self):
@@ -172,7 +214,15 @@ class Config:
 
     def scale(self):
         if self.scaling is not None and not self.isScaled:
-            self.rdf = self.rdf.Redefine(self.pt_branch, self.scaling)
+            # snapshot the current column in an alias: a chained
+            # self-referential Redefine is a silent no-op when the preprocess
+            # already redefined the branch (e.g. tight_barrel), leaving the
+            # branch unscaled and the rate thresholds on the wrong scale
+            snapshot = f"{self.pt_branch}_online"
+            self.rdf = self.rdf.Alias(snapshot, self.pt_branch)
+            self.rdf = self.rdf.Redefine(
+                self.pt_branch, self.scaling.replace(self.pt_branch, snapshot)
+            )
             self.isScaled = True
 
     def makeRate(self, bins, maxRate, overwrite=False):
@@ -188,7 +238,7 @@ class Config:
             elif isinstance(bins, np.ndarray):
                 axis = hist.axis.Variable(bins)
                 th = self.rdf.Histo1D(
-                    ("", "", len(bins) - 1, array("f", bins)), "MAXPT"
+                    ("", "", len(bins) - 1, array("d", bins)), "MAXPT"
                 )
             else:
                 raise ValueError("bins must be either a tuple or a numpy array.")
@@ -196,19 +246,34 @@ class Config:
             th = th.GetValue()
             h = hist.Hist(axis, storage=hist.storage.Weight())
 
-            for i in range(0, th.GetNbinsX() + 2):
-                h.fill(th.GetBinLowEdge(i), weight=th.GetBinContent(i))
+            # re-fill the real bins at their CENTER (under/overflow stay out of
+            # the bin contents): a fill at the low edge lands in the wrong bin
+            # as soon as the edge is not exactly representable, corrupting the
+            # cumulative rate and with it the cut targets
+            n_bins = th.GetNbinsX()
+            for i in range(1, n_bins + 1):
+                center = 0.5 * (th.GetBinLowEdge(i) + th.GetBinLowEdge(i + 1))
+                h.fill(center, weight=th.GetBinContent(i))
 
-            h_scaled = (self.nEvents / self.TotEvents) * maxRate * h / h.integrate(0, 0).value
-
-            rate = np.array([])
-            rate_err = np.array([])
-            for idx, _ in enumerate(bins):
-                integral = h_scaled.integrate(0, idx)
-                rate = np.append(rate, integral.value)
-                rate_err = np.append(rate_err, integral.variance**0.5)
-            self.rate = rate
-            self.rate_err = rate_err
+            # Rate vs threshold (one entry per bin edge), same definition as the
+            # cut search (count * maxRate / TotEvents). Events above the last
+            # edge still pass every threshold: the overflow enters every point
+            # of the cumulative (its own point is the rate at the last edge),
+            # otherwise the curve dives to zero while the cut search counts
+            # those events.
+            overflow = th.GetBinContent(n_bins + 1)
+            if overflow:
+                h.fill(np.inf, weight=overflow)  # visible to the top-edge lookup
+            counts = np.append(
+                [th.GetBinContent(i) for i in range(1, n_bins + 1)], overflow
+            )
+            variances = np.append(
+                [th.GetBinError(i) ** 2 for i in range(1, n_bins + 1)],
+                th.GetBinError(n_bins + 1) ** 2,
+            )
+            scale = maxRate / self.TotEvents
+            self.rate = np.cumsum(counts[::-1])[::-1] * scale
+            self.rate_err = np.sqrt(np.cumsum(variances[::-1])[::-1]) * scale
             return h
 
     def compute(self):
@@ -238,8 +303,13 @@ class Config:
 
     def apply_WP(self):
         if self.WP is not None and not self.isWPApplied:
+            pt_bins = self.WP[0]
+            if self.isScaled:
+                # WP bins are in the online scale; the pt branch already holds
+                # the offline pt (clones reusing a scaled rdf)
+                pt_bins = self.forward_scaling(np.asarray(pt_bins, dtype=float))
             self.rdf = applyWP(
-                self.pt_branch, self.score_branch, self.WP[0], self.WP[1], self.rdf
+                self.pt_branch, self.score_branch, pt_bins, self.WP[1], self.rdf
             )
             self.isWPApplied = True
 
@@ -278,7 +348,7 @@ class ConfigEff:
         )
 
     def get_gen_data(self, wp=None):
-        """Run one event loop; return flat arrays {"pt", "eta", "matched"}.
+        """Run one event loop; return flat arrays {"pt", "eta", "matched", "reco_pt"}.
 
         wp: optional (pt_bins, score_cuts) applied to the reco objects before
         the gen matching. Requires reco["score"].
@@ -286,7 +356,7 @@ class ConfigEff:
         rdf = open_rdf(self.samples_path, self.tree)
         if self.func is not None:
             rdf = self.func(rdf)
-        reco_eta, reco_phi = self.reco["eta"], self.reco["phi"]
+        reco_eta, reco_phi, reco_pt = self.reco["eta"], self.reco["phi"], self.reco["pt"]
         if wp is not None:
             # Mask the reco objects per event; NO event Filter: events where no
             # reco object passes the WP still contribute their gen electrons to
@@ -300,13 +370,21 @@ class ConfigEff:
             )
             rdf = rdf.Define("gen_eff_recoEta", f"{reco_eta}[gen_eff_WPmask]")
             rdf = rdf.Define("gen_eff_recoPhi", f"{reco_phi}[gen_eff_WPmask]")
+            rdf = rdf.Define("gen_eff_recoPt", f"{reco_pt}[gen_eff_WPmask]")
             reco_eta, reco_phi = "gen_eff_recoEta", "gen_eff_recoPhi"
+            reco_pt = "gen_eff_recoPt"
         rdf = rdf.Define(
             "gen_matched",
             f"gen_reco_match({self.gen['eta']}, {self.gen['phi']}, "
             f"{reco_eta}, {reco_phi}, {self.deltaR})",
         )
+        rdf = rdf.Define(
+            "gen_matched_pt",
+            f"gen_reco_match_pt({self.gen['eta']}, {self.gen['phi']}, "
+            f"{reco_pt}, {reco_eta}, {reco_phi}, {self.deltaR})",
+        )
         gen_pt, gen_eta, matched = self.gen["pt"], self.gen["eta"], "gen_matched"
+        matched_pt = "gen_matched_pt"
         if self.gen_acceptance is not None:
             # Restrict the gen denominator to the geometric acceptance (e.g.
             # barrel), so that gen electrons no reco collection can ever match
@@ -314,14 +392,17 @@ class ConfigEff:
             rdf = rdf.Define("gen_eff_acc", self.gen_acceptance)
             rdf = (rdf.Define("gen_eff_pt", f"{gen_pt}[gen_eff_acc]")
                    .Define("gen_eff_eta", f"{gen_eta}[gen_eff_acc]")
-                   .Define("gen_eff_matched", f"gen_matched[gen_eff_acc]"))
+                   .Define("gen_eff_matched", f"gen_matched[gen_eff_acc]")
+                   .Define("gen_eff_matched_pt", f"gen_matched_pt[gen_eff_acc]"))
             gen_pt, gen_eta, matched = "gen_eff_pt", "gen_eff_eta", "gen_eff_matched"
-        cols = [gen_pt, gen_eta, matched]
+            matched_pt = "gen_eff_matched_pt"
+        cols = [gen_pt, gen_eta, matched, matched_pt]
         data = extract_columns(rdf, cols)
         return {
             "pt": data[gen_pt],
             "eta": data[gen_eta],
             "matched": data[matched] != 0,
+            "reco_pt": data[matched_pt],
         }
 
 

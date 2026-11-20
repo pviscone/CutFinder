@@ -70,14 +70,26 @@ class Plotter:
     def __init__(self, **kwargs):
         self.kwargs = kwargs
 
-    def plot_rates(self, glob, obj, refs, output=None):
+    def plot_rates(self, glob, obj, refs, output=None, online_axis=False):
         isScaled = obj.isScaled  # check if both are scaled already performed in main
 
         names = display_names(obj, *refs)
         obj_label = names[obj.name]
 
         records = obj.records
-        pt_bins = glob.pt_bins
+        # the rate comparison is on the offline pT scale: the x axis is the
+        # offline threshold (obj scaling); online_axis=True shows the same
+        # curves vs the online threshold (the configured pt_bins)
+        if online_axis:
+            pt_bins = glob.pt_bins
+            xlabel = "Online pT [GeV]"
+            name = "rates_vs_online"
+        else:
+            pt_bins = (
+                obj.forward_scaling(np.array(glob.pt_bins)) if isScaled else glob.pt_bins
+            )
+            xlabel = "Offline pT [GeV]" if isScaled else "Online pT [GeV]"
+            name = "rates"
 
         fig, ax = plt.subplots(
             2, 1, sharex=True, gridspec_kw={"height_ratios": [3, 1], "hspace": 0.0}
@@ -184,10 +196,7 @@ class Plotter:
         )
         main_ax.set_ylabel("Rate [kHz]")
         ratio_ax.set_ylabel("Obj/Ref")
-        if isScaled:
-            ratio_ax.set_xlabel("Offline pT [GeV]")
-        else:
-            ratio_ax.set_xlabel("Online pT [GeV]")
+        ratio_ax.set_xlabel(xlabel)
 
         # grids
         ratio_ax.axhline(
@@ -198,11 +207,14 @@ class Plotter:
         # lims
         main_ax.set_ylim(0.3, glob.maxRate * 10)
         ratio_ax.set_ylim(0, 2)
-        fig.savefig(f"{output}/{obj.name}/rates.png", bbox_inches="tight")
-        fig.savefig(f"{output}/{obj.name}/rates.pdf", bbox_inches="tight")
+        if isScaled and not online_axis:
+            # the offline threshold axis starts at the scaling offset: show it from 0
+            main_ax.set_xlim(left=0)
+        fig.savefig(f"{output}/{obj.name}/{name}.png", bbox_inches="tight")
+        fig.savefig(f"{output}/{obj.name}/{name}.pdf", bbox_inches="tight")
         plt.close(fig)
 
-    def plot_cuts(self, obj, refs, output=None):
+    def plot_cuts(self, obj, refs, output=None, offline_axis=False):
         records = obj.records
 
         names = display_names(obj, *refs)
@@ -225,6 +237,10 @@ class Plotter:
                 fitted_bins.append(ref_dict["full"]["bins"][-1])
                 fitted_cuts.append(fitted_cuts[-1])
 
+            if offline_axis:
+                # record bins are in the online scale (obj scaling)
+                fitted_bins = obj.forward_scaling(np.asarray(fitted_bins, dtype=float))
+
             ax.step(
                 fitted_bins,
                 fitted_cuts,
@@ -243,6 +259,8 @@ class Plotter:
             full_bins = full_bins[full_cuts > -9999]
             full_cuts = full_cuts[full_cuts > -9999]
             full_err = full_err[full_cuts > -9999]
+            if offline_axis:
+                full_bins = obj.forward_scaling(full_bins.astype(float))
 
             # plot full cuts
             line, _, _ = ax.errorbar(
@@ -278,15 +296,19 @@ class Plotter:
             ax=ax,
             fontsize=13,
         )
-        ax.set_xlabel("Online pT [GeV]")
+        ax.set_xlabel("Offline pT [GeV]" if offline_axis else "Online pT [GeV]")
         ax.set_ylabel("Cut Value (score)")
 
         y_min, y_max = ax.get_ylim()
         if y_min > -1 and y_max < 1:
             ax.set_ylim(-1, 1)
+        if offline_axis:
+            # the offline threshold axis starts at the scaling offset: show it from 0
+            ax.set_xlim(left=0)
         ax.grid(which="major", linestyle="--", linewidth=0.5, alpha=0.7)
-        fig.savefig(f"{output}/{obj.name}/cuts.png", bbox_inches="tight")
-        fig.savefig(f"{output}/{obj.name}/cuts.pdf", bbox_inches="tight")
+        name = "cuts_vs_offline" if offline_axis else "cuts"
+        fig.savefig(f"{output}/{obj.name}/{name}.png", bbox_inches="tight")
+        fig.savefig(f"{output}/{obj.name}/{name}.pdf", bbox_inches="tight")
         plt.close(fig)
 
     @staticmethod

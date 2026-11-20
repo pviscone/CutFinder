@@ -52,7 +52,7 @@ The config file is a python file in which you have to specify 3 types of Config 
 
 ### [`CutFinder.configs.GlobalConf`](CutFinder/configs.py)
 Here have to specify some global settings
-- `pt_bins` the fine pt_binning to use to compute the rate.
+- `pt_bins` the fine pt_binning to use to compute the rate (the online pT thresholds of the obj; see "Offline-to-Online scaling").
 - `algo` the algorithm to use to compute the bin-by-bin cuts (defined in CutFinder/algorithms.py) (default = iterative_bin_cutter)
 - `regressor` the algorithm that perform the step function fit (defined in CutFinder/regressors.py) (default = bayesian_blocks_gaussian)
 - `fitrange` the pT range on which the regressor performs the fit (default = None (full range))
@@ -104,11 +104,15 @@ Attach an `eff_config=ConfigEff(...)` to a `ConfigObj` (and optionally to the `C
 The matching is "gen electron matched if any (WP-passing) reco object lies within dR"; the efficiency is `gen[matched] / gen[all]`. Columns are extracted with the ForeachSlot-based `CutFinder.extractor.extract_columns` (vector columns must NOT go through `AsNumpy`, which materializes slow object arrays).
 
 ## Offline-to-Online scaling
-You can pass online-to-offline scaling function as lambda function to config objects.
+The rate comparison can be performed on the OFFLINE pT scale: `pt_bins` in `GlobalConf` is the ONLINE pT binning of the obj (the WP thresholds, starting at 0), and the rate scan runs on the corresponding OFFLINE bins (`offline = a * online + b`, starting at the offset of the map), so that obj and ref are compared at equal offline thresholds.
+
+There are two ways to enable it:
+1. **Derived**: if and only if both the `ConfigRef` and the `ConfigObj` of every comparison have an `eff_config` (and no explicit `scaling_function`), the online-to-offline scaling of each config is derived from its own efficiency turn-on: for a set of online pT cuts (`scaling_kwargs={"pt_cuts": ...}` in `GlobalConf`, default `np.arange(15, 56, 10)`) the turn-on vs gen pT is fitted, the gen pT at 95% efficiency (the so-called 95% WP) is extracted for every cut and the points are linear-fitted as `offline = a * online + b` (the same recipe as the TkEleRegression rate studies, see `CutFinder/scaling.py`). The fitted turn-ons (`turn_on_<cut>.png`) and the linear fit (`online_to_offline_scaling.png`) are saved in `<output>/scaling/<config name>/`; the derived `(a, b)` are printed and stored in `records.json` under `"scaling"`.
+2. **Explicit**: pass an online-to-offline `scaling_function` as a lambda of a sympy symbol to the config objects (e.g. `lambda pt: 1.1 * pt + 2`).
 
 Achtung! All the configs must or must not have all together a scaling function defined.
 
-The scaling function will be used to scale online pt to offline pt when plotting rates and to inverse scale WP pt edges inverting the function wiht sympy
+When the scaling is active the output also contains the same WP on the other pT scale: `rates_vs_online.png` (rate vs the online threshold) and `cuts_vs_offline.png` (cuts vs the offline threshold), next to the usual `rates.png` (offline) and `cuts.png` (online).
 
 ## Algorithms
 The algorithms are function defined in CutFinder/algorithms.py that have

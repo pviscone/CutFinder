@@ -6,3 +6,4 @@ mplhep==0.4.1
 mplhep_data==0.0.5
 rich==14.2.0
 sympy==1.14.0
+scipy
