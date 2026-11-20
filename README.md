@@ -44,6 +44,7 @@ The cli command is `cutFinder`
 - `-o path/to/outfolder` specify the path in which to save the output folder
 - `-j int` Controls how many cores RDataframe have to use (default: ALL OF THEM)
 - `--regressor-only` often you need to compute the bin-by-bin cuts only once and then finetune the regressor (unless you need a finer binning). With this command you can use the already computed rates and cuts loading them from the `records.json` located in the previously saved output folder.
+- `--no-scaling` skip the scaling derivation and run on the online pT thresholds (by default, when both configs provide an `eff_config`, the run uses the offline thresholds derived from the efficiency turn-ons).
 
 ## Configs
 You can find some examples in the config folder.

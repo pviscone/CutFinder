@@ -26,6 +26,12 @@ def main(
         "--regressor-only",
         help="Only perform the regression on pre-computed cuts.",
     ),
+    no_scaling: bool = typer.Option(
+        False,
+        "--no-scaling",
+        help="Skip the scaling derivation and run on the online pT thresholds "
+        "(by default the offline thresholds derived from the eff_config turn-ons are used).",
+    ),
 ):
 
     from CutFinder.configs import ConfigRef
@@ -53,13 +59,26 @@ def main(
     # every comparison provide an eff_config (and no explicit scaling_function),
     # derive the scaling per config (turn-on fit + 95% WP + linear map). The
     # pt_bins are then offline pT bins and the WP is derived on the offline rate.
+    # --no-scaling skips all of this and runs on the online pT thresholds.
+    if no_scaling:
+        for cfg in [*refs, *objs]:
+            if cfg.scaling_function is not None:
+                print(
+                    f"Warning: --no-scaling, ignoring the scaling_function of {cfg.name}."
+                )
+            cfg.scaling_function = None
+            cfg.scaling = None
+            cfg.forward_scaling = None
+            cfg.inverse_scaling = None
+            cfg.scaling_params = None
+
     pairs = [
         (ref, obj)
         for ref in refs
         for obj in objs
         if obj.refs is None or ref.name in obj.refs
     ]
-    if pairs and all(
+    if not no_scaling and pairs and all(
         ref.eff_config is not None and obj.eff_config is not None for ref, obj in pairs
     ):
         for cfg in dict.fromkeys(c for pair in pairs for c in pair):
