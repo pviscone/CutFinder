@@ -97,19 +97,12 @@ class Plotter:
         main_ax = ax[0]
         ratio_ax = ax[1]
 
-        fitted_line_legend = Line2D([0], [0], color="black", lw=3, linestyle="-.")
-        fitted_line_legend.set_path_effects(
-            [pe.Stroke(linewidth=1.5, foreground="magenta", alpha=0.7), pe.Normal()]
-        )
-        custom_lines = [
-            Line2D([0], [0], color="black", lw=3, linestyle="-"),
-            fitted_line_legend,
-        ]
-        labels = [f"{obj_label} (full)", f"{obj_label} (fitted)"]
+        handles = []
+        labels = []
 
         for idx, (ref, ref_dict) in enumerate(records.items()):
             # plot obj rate
-            main_ax.plot(
+            (full_line,) = main_ax.plot(
                 pt_bins,
                 ref_dict["full"]["rate"],
                 marker=markers[idx % len(markers)],
@@ -170,20 +163,14 @@ class Plotter:
                 color=palette[idx % len(palette)],
             )
 
-            labels.append(names.get(ref, ref))
-            custom_lines.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=palette[idx % len(palette)],
-                    lw=3,
-                    linestyle="-",
-                    marker=markers[idx % len(markers)],
-                    markeredgecolor="black",
-                )
-            )
+            handles += [full_line, fitted_line, ref_line]
+            labels += [
+                f"{obj_label} (full)",
+                f"{obj_label} (fitted)",
+                names.get(ref, ref),
+            ]
 
-        main_ax.legend(custom_lines, labels, loc="upper right", fontsize="small")
+        main_ax.legend(handles, labels, loc="upper right", fontsize="small")
 
         # scale
         main_ax.set_yscale("log")
@@ -221,11 +208,8 @@ class Plotter:
         obj_label = names[obj.name]
 
         fig, ax = plt.subplots()
-        custom_lines = [
-            Line2D([0], [0], color="black", lw=2, linestyle="--"),
-            Line2D([0], [0], color="black", lw=2, linestyle="-"),
-        ]
-        labels = [obj_label, f"{obj_label} (fitted)"]
+        handles = []
+        labels = []
         for idx, (ref, ref_dict) in enumerate(records.items()):
             fitted_bins = np.array(ref_dict["fitted"]["bins"])
             fitted_cuts = np.array(ref_dict["fitted"]["cuts"])
@@ -241,7 +225,7 @@ class Plotter:
                 # record bins are in the online scale (obj scaling)
                 fitted_bins = obj.forward_scaling(np.asarray(fitted_bins, dtype=float))
 
-            ax.step(
+            (fitted_line,) = ax.step(
                 fitted_bins,
                 fitted_cuts,
                 linestyle="-",
@@ -276,20 +260,11 @@ class Plotter:
                 [pe.Stroke(linewidth=3, foreground="black"), pe.Normal()]
             )
 
-            custom_lines.append(
-                Line2D(
-                    [0],
-                    [0],
-                    color=palette[idx % len(palette)],
-                    lw=3,
-                    linestyle="-",
-                    marker=markers[idx % len(markers)],
-                )
-            )
-            # labels.append(ref + f'\n$\chi^2$/ndf: {ref_dict["fitted"]["chi2"]:.4f}')
-            labels.append(names.get(ref, ref))
+            handles += [line, fitted_line]
+            suffix = "" if len(records) == 1 else f" ({names.get(ref, ref)})"
+            labels += [f"{obj_label} (full){suffix}", f"{obj_label} (fitted){suffix}"]
 
-        ax.legend(custom_lines, labels, loc="upper right", fontsize="small")
+        ax.legend(handles, labels, loc="upper right", fontsize="small")
         hep.cms.label(
             llabel="Phase-2 Simulation Preliminary",
             rlabel="PU 200 (14 TeV)",
