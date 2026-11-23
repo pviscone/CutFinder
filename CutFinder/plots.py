@@ -101,6 +101,10 @@ class Plotter:
         labels = []
 
         for idx, (ref, ref_dict) in enumerate(records.items()):
+            # same colors as the efficiency plots: ref, obj (full), obj (fitted)
+            c_ref = palette[(3 * idx) % len(palette)]
+            c_full = palette[(3 * idx + 1) % len(palette)]
+            c_fitted = palette[(3 * idx + 2) % len(palette)]
             # plot obj rate
             (full_line,) = main_ax.plot(
                 pt_bins,
@@ -108,7 +112,7 @@ class Plotter:
                 marker=markers[idx % len(markers)],
                 linestyle="-",
                 markeredgecolor="black",
-                color=palette[idx % len(palette)],
+                color=c_full,
                 alpha=1,
                 linewidth=3,
             )
@@ -119,7 +123,7 @@ class Plotter:
                 ref_dict["ref_rate"],
                 marker=markers[idx % len(markers)],
                 linestyle="--",
-                color=palette[idx % len(palette)],
+                color=c_ref,
                 alpha=0.666,
             )
             ref_line.set_path_effects(
@@ -132,7 +136,7 @@ class Plotter:
                 marker=markers[idx % len(markers)],
                 linestyle="-.",
                 markeredgecolor="black",
-                color=palette[idx % len(palette)],
+                color=c_fitted,
                 linewidth=3,
             )
 
@@ -151,7 +155,7 @@ class Plotter:
                 marker=markers[idx % len(markers)],
                 linestyle="-",
                 markeredgecolor="black",
-                color=palette[idx % len(palette)],
+                color=c_full,
             )
 
             ratio_ax.plot(
@@ -160,7 +164,7 @@ class Plotter:
                 marker=markers[idx % len(markers)],
                 linestyle="-.",
                 markeredgecolor="black",
-                color=palette[idx % len(palette)],
+                color=c_fitted,
             )
 
             handles += [full_line, fitted_line, ref_line]
