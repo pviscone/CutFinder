@@ -7,6 +7,8 @@ import matplotlib.patheffects as pe
 from matplotlib.lines import Line2D
 import numpy as np
 
+from .scaling import pt_response_kernels, sample_pt_ratio
+
 cms10 = [
     "#3f90da",
     "#ffa90e",
@@ -303,43 +305,134 @@ class Plotter:
     def plot_efficiencies(self, obj, refs, output=None):
         """Gen-level efficiency of the WPs: reference vs obj(full) vs obj(fitted).
 
-        One figure per (ref, variable): variable in {gen pt, gen eta}. The
-        reference curve is the ref's own selection (its preprocess_function);
-        obj curves apply the per-bin ("full") and regression-fitted ("fitted")
-        score WPs found against that ref.
+        One figure per (ref, variable): variable in {gen pt, gen eta, online pt,
+        offline pt}. Every variable bins the same set of accepted gen electrons,
+        so the denominator is the full gen set in all of them. The online and
+        offline pT axes replace the gen pT of every electron by pt * ratio, the
+        ratio sampled from the measured reco/gen distribution of the matched
+        probes (no functional form assumed), interpolated in gen pT. The
+        efficiency turn-on is therefore diluted by the pT resolution and moved
+        to the scale on which the object is actually selected, while gen
+        electrons that never reconstruct stay in the denominator.
+        The reference curve is the ref's own ID selection; obj curves apply the
+        per-bin ("full") and regression-fitted ("fitted") score WPs found against
+        that ref.
         """
         ref_by_name = {ref.name: ref for ref in refs}
         names = display_names(obj, *refs)
         obj_label = names[obj.name]
+        rng = np.random.default_rng(42)  # reproducible kernel sampling
         for ref_name, rec in obj.records.items():
             ref = ref_by_name.get(ref_name)
-            for var in ("pt", "eta"):
+            curves = {}
+            if ref is not None and ref.eff_config is not None:
+                curves[names.get(ref_name, ref_name)] = (
+                    ref,
+                    ref.eff_config,
+                    None,
+                )  # ref: no score WP
+            curves[f"{obj_label} (full)"] = (
+                obj,
+                obj.eff_config,
+                (rec["full"]["bins"], rec["full"]["cuts"]),
+            )
+            curves[f"{obj_label} (fitted)"] = (
+                obj,
+                obj.eff_config,
+                (rec["fitted"]["bins"], rec["fitted"]["cuts"]),
+            )
+            # one event loop per curve, shared by all the x variables
+            datasets = {
+                label: eff_config.get_gen_data(wp=wp)
+                for label, (_, eff_config, wp) in curves.items()
+            }
+
+            # measured pT response of every curve: the reco/gen ratio kernel per
+            # gen pT bin, from the matched probes (before any ID selection)
+            responses = {}
+            for label, (_, eff_config, _) in curves.items():
+                data = datasets[label]
+                responses[label] = pt_response_kernels(
+                    data["pt"],
+                    data["probe_pt"],
+                    data["probe_matched"],
+                    np.asarray(eff_config.pt_bins, dtype=float),
+                )
+
+            # the response itself, as measured: median and 68% interval of the
+            # reco/gen ratio per gen pT bin
+            fig, ax = plt.subplots()
+            for idx, (label, (centres, kernels)) in enumerate(responses.items()):
+                if not kernels:
+                    continue
+                med = np.array([np.median(k) for k in kernels])
+                lo = np.array([np.percentile(k, 16) for k in kernels])
+                hi = np.array([np.percentile(k, 84) for k in kernels])
+                ax.errorbar(
+                    centres,
+                    med,
+                    yerr=[med - lo, hi - med],
+                    marker=markers[idx % len(markers)],
+                    linestyle="-",
+                    linewidth=3,
+                    color=palette[idx % len(palette)],
+                    markeredgecolor="black",
+                    label=label,
+                )
+            ax.axhline(1.0, color="black", linestyle="--", linewidth=1, alpha=0.5)
+            ax.set_xlabel("Gen $p_T$ [GeV]")
+            ax.set_ylabel("$p_T^{\\mathrm{online}} / p_T^{\\mathrm{gen}}$")
+            ax.set_xlim(0, 60)
+            ax.legend(fontsize="small")
+            hep.cms.label(
+                llabel="Phase-2 Simulation Preliminary",
+                rlabel="PU 200 (14 TeV)",
+                ax=ax,
+                fontsize=13,
+            )
+            response_name = "onlinePt_response"
+            if len(obj.records) > 1:
+                response_name = f"{response_name}_vs_{ref_name}"
+            fig.savefig(f"{output}/{obj.name}/{response_name}.png", bbox_inches="tight")
+            fig.savefig(f"{output}/{obj.name}/{response_name}.pdf", bbox_inches="tight")
+            plt.close(fig)
+
+            # the offline pT axis needs the online-to-offline scaling of every
+            # config: skip it in --no-scaling runs
+            variables = ["pt", "eta", "online_pt"]
+            if all(cfg.forward_scaling is not None for cfg, _, _ in curves.values()):
+                variables.append("offline_pt")
+            else:
+                print(f"Skipping the offline pT efficiency for {ref_name}: no scaling")
+
+            for var in variables:
                 fig, (main_ax, ratio_ax) = plt.subplots(
                     2,
                     1,
                     sharex=True,
                     gridspec_kw={"height_ratios": [3, 1], "hspace": 0.0},
                 )
-                curves = {}
-                if ref is not None and ref.eff_config is not None:
-                    curves[names.get(ref_name, ref_name)] = (
-                        ref.eff_config,
-                        None,
-                    )  # ref: no score WP
-                curves[f"{obj_label} (full)"] = (
-                    obj.eff_config,
-                    (rec["full"]["bins"], rec["full"]["cuts"]),
-                )
-                curves[f"{obj_label} (fitted)"] = (
-                    obj.eff_config,
-                    (rec["fitted"]["bins"], rec["fitted"]["cuts"]),
-                )
-
-                base_eff = None
-                for idx, (label, (eff_config, wp)) in enumerate(curves.items()):
-                    data = eff_config.get_gen_data(wp=wp)
-                    bins = eff_config.pt_bins if var == "pt" else eff_config.eta_bins
-                    centers, eff, err = self._eff_curve(data[var], data["matched"], bins)
+                base_eff = base_centers = None
+                for idx, (label, (cfg, eff_config, _)) in enumerate(curves.items()):
+                    data = datasets[label]
+                    if var == "pt":
+                        x = data["pt"]
+                        bins = eff_config.pt_bins
+                    elif var == "eta":
+                        x = data["eta"]
+                        bins = eff_config.eta_bins
+                    else:
+                        # gen pT moved to the online (or offline) scale with the
+                        # measured resolution kernel of the curve
+                        x = data["pt"] * sample_pt_ratio(
+                            data["pt"], *responses[label], rng
+                        )
+                        bins = np.asarray(eff_config.pt_bins, dtype=float)
+                        if var == "offline_pt":
+                            x = cfg.forward_scaling(x)
+                            bins = cfg.forward_scaling(bins)
+                    matched = data["matched"]
+                    centers, eff, err = self._eff_curve(x, matched, bins)
                     linestyle = {"full": "-", "fitted": "-."}.get(
                         label.split("(")[-1].rstrip(")"), "--"
                     )
@@ -356,11 +449,12 @@ class Plotter:
                     )
                     if base_eff is None:
                         base_eff = eff  # reference curve for the ratio panel
+                        base_centers = centers
                     elif base_eff is not None:
                         with np.errstate(divide="ignore", invalid="ignore"):
                             ratio = eff / base_eff
                         ratio_ax.plot(
-                            centers,
+                            base_centers,
                             ratio,
                             marker=markers[idx % len(markers)],
                             linestyle=linestyle,
@@ -387,9 +481,17 @@ class Plotter:
                     ratio_ax.set_xlabel("Gen $p_T$ [GeV]")
                     ratio_ax.set_xlim(0, 100)
                     suffix = "efficiency_vs_genPt"
-                else:
+                elif var == "eta":
                     ratio_ax.set_xlabel("Gen $\\eta$")
                     suffix = "efficiency_vs_genEta"
+                elif var == "online_pt":
+                    ratio_ax.set_xlabel("Online $p_T$ [GeV]")
+                    ratio_ax.set_xlim(0, 100)
+                    suffix = "efficiency_vs_onlinePt"
+                else:
+                    ratio_ax.set_xlabel("Offline $p_T$ [GeV]")
+                    ratio_ax.set_xlim(left=0)
+                    suffix = "efficiency_vs_offlinePt"
                 if len(obj.records) > 1:
                     suffix = f"{suffix}_vs_{ref_name}"
                 fig.savefig(f"{output}/{obj.name}/{suffix}.png", bbox_inches="tight")
