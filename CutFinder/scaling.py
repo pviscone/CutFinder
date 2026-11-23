@@ -26,6 +26,66 @@ def eff_func(x, par0, par1, par2, par3, par4):
     return (term1 - term2 * term3) * (par3 - par4) + par4
 
 
+def pt_response_kernels(gen_pt, reco_pt, matched, bins=None, min_entries=200):
+    """Measured pT response of the online object, in bins of the gen pT.
+
+    Returns the gen pT centres and, for each of them, the reco/gen pT ratios of
+    the matched objects. The full measured distribution is kept as the kernel:
+    no functional form (e.g. a Gaussian) is assumed, so the bremsstrahlung tail
+    and any other non-Gaussian feature enters the smearing as measured. Bins
+    with fewer than min_entries matched objects are merged forward until the
+    kernel is statistically usable, and the centre is the median gen pT of the
+    merged entries (not the bin midpoint).
+    """
+    gen_pt = np.asarray(gen_pt, dtype=float)
+    reco_pt = np.asarray(reco_pt, dtype=float)
+    matched = np.asarray(matched, dtype=bool)
+    edges = np.arange(0, 102, 2) if bins is None else np.asarray(bins, dtype=float)
+
+    centres, kernels = [], []
+    lo = edges[0]
+    for hi in edges[1:]:
+        sel = matched & (gen_pt >= lo) & (gen_pt < hi)
+        if sel.sum() < min_entries and hi < edges[-1]:
+            continue  # widen this bin with the next one
+        ratio = reco_pt[sel] / gen_pt[sel]
+        if ratio.size:
+            centres.append(float(np.median(gen_pt[sel])))
+            kernels.append(ratio)
+        lo = hi
+    return np.array(centres), kernels
+
+
+def sample_pt_ratio(gen_pt, centres, kernels, rng):
+    """Sample a reco/gen pT ratio per gen electron from the measured kernels.
+
+    The kernels are linearly interpolated in gen pT. Interpolating the CDFs is
+    the two-component mixture (1 - w) K_left + w K_right, drawn here by picking
+    the left kernel with probability 1 - w: no shape is assumed for the
+    response, only that it varies smoothly with gen pT. Below the lowest
+    measured centre the lowest kernel is used, above the highest the last one.
+    """
+    pt = np.asarray(gen_pt, dtype=float)
+    centres = np.asarray(centres, dtype=float)
+    if not kernels:
+        return np.ones_like(pt)
+    if len(kernels) == 1:
+        return rng.choice(kernels[0], size=pt.size)
+
+    x = np.clip(pt, centres[0], centres[-1])
+    idx = np.clip(np.searchsorted(centres, x, side="right") - 1, 0, len(centres) - 2)
+    w = (x - centres[idx]) / (centres[idx + 1] - centres[idx])
+    use_right = rng.random(pt.size) < w
+
+    out = np.empty(pt.size)
+    for k in range(len(centres) - 1):
+        for take_right, kernel in ((False, kernels[k]), (True, kernels[k + 1])):
+            sel = (idx == k) & (use_right == take_right)
+            if sel.any():
+                out[sel] = rng.choice(kernel, size=int(sel.sum()))
+    return out
+
+
 def find_inverse(f, y_target, xmin, xmax, *params):
     sol = root_scalar(lambda x: f(x, *params) - y_target, bracket=[xmin, xmax])
     if not sol.converged:

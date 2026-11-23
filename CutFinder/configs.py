@@ -317,9 +317,11 @@ class Config:
 class ConfigEff:
     """Gen-level efficiency evaluation attached to a ConfigObj/ConfigRef.
 
-    Signal sample -> preprocess_function -> (optional) WP applied to the reco
+    Signal sample -> preprocess_function -> (optional) ID selection on the reco
     objects -> gen electrons geometrically matched (dR) to a surviving reco
-    object. Efficiency = gen[matched] / gen[all], vs gen pt and vs gen eta.
+    object. Efficiency = gen[matched] / gen[all], vs gen pt and vs gen eta; the
+    candidate-level curves bin the gen electrons with a pre-ID candidate (the
+    probe) in the pT of that candidate.
     """
 
     def __init__(
@@ -332,6 +334,7 @@ class ConfigEff:
         tree: str = "Events",
         deltaR: float = 0.1,
         gen_acceptance: Optional[str] = None,  # e.g. "abs(GenEl_caloeta) < 1.479"
+        id_mask: Optional[str] = None,  # per-object bool expr, same indexing as reco
         pt_bins: Optional[np.ndarray] = None,
         eta_bins: Optional[np.ndarray] = None,
     ):
@@ -342,25 +345,48 @@ class ConfigEff:
         self.tree = tree
         self.deltaR = deltaR
         self.gen_acceptance = gen_acceptance
+        self.id_mask = id_mask
         self.pt_bins = np.arange(0, 102, 2) if pt_bins is None else np.asarray(pt_bins)
         self.eta_bins = (
             np.arange(-1.6, 1.61, 0.1) if eta_bins is None else np.asarray(eta_bins)
         )
 
     def get_gen_data(self, wp=None):
-        """Run one event loop; return flat arrays {"pt", "eta", "matched", "reco_pt"}.
+        """Run one event loop; return flat arrays {"pt", "eta", "matched", "reco_pt",
+        "probe_pt", "probe_matched"}.
 
         wp: optional (pt_bins, score_cuts) applied to the reco objects before
         the gen matching. Requires reco["score"].
+        The probe arrays describe the geometric match to the reco collection
+        BEFORE the ID selection (self.id_mask and wp): "probe_matched" is true
+        for the gen electrons with at least one candidate within deltaR and
+        "probe_pt" is the pT of the highest-pT candidate among them (0 when no
+        candidate matches).
         """
         rdf = open_rdf(self.samples_path, self.tree)
         if self.func is not None:
             rdf = self.func(rdf)
         reco_eta, reco_phi, reco_pt = self.reco["eta"], self.reco["phi"], self.reco["pt"]
+        # probe match on the candidates BEFORE the ID selection
+        rdf = rdf.Define(
+            "gen_probe_matched",
+            f"gen_reco_match({self.gen['eta']}, {self.gen['phi']}, "
+            f"{reco_eta}, {reco_phi}, {self.deltaR})",
+        )
+        rdf = rdf.Define(
+            "gen_probe_pt",
+            f"gen_reco_match_pt({self.gen['eta']}, {self.gen['phi']}, "
+            f"{reco_pt}, {reco_eta}, {reco_phi}, {self.deltaR})",
+        )
+        # ID selection: the id_mask of the config and/or the score WP. Mask the
+        # reco objects per event; NO event Filter: events where no reco object
+        # passes the ID still contribute their gen electrons to the denominator
+        # as unmatched.
+        id_masks = []
+        if self.id_mask is not None:
+            rdf = rdf.Define("gen_eff_idmask", self.id_mask)
+            id_masks.append("gen_eff_idmask")
         if wp is not None:
-            # Mask the reco objects per event; NO event Filter: events where no
-            # reco object passes the WP still contribute their gen electrons to
-            # the denominator as unmatched.
             if "score" not in self.reco:
                 raise ValueError("Applying a WP requires reco['score'] in ConfigEff")
             pt_bins, score_cuts = wp_mask_strings(wp[0], wp[1])
@@ -368,9 +394,12 @@ class ConfigEff:
                 "gen_eff_WPmask",
                 f"WP_mask({self.reco['pt']}, {self.reco['score']}, {pt_bins}, {score_cuts})",
             )
-            rdf = rdf.Define("gen_eff_recoEta", f"{reco_eta}[gen_eff_WPmask]")
-            rdf = rdf.Define("gen_eff_recoPhi", f"{reco_phi}[gen_eff_WPmask]")
-            rdf = rdf.Define("gen_eff_recoPt", f"{reco_pt}[gen_eff_WPmask]")
+            id_masks.append("gen_eff_WPmask")
+        if id_masks:
+            mask = id_masks[0] if len(id_masks) == 1 else f"({' && '.join(id_masks)})"
+            rdf = rdf.Define("gen_eff_recoEta", f"{reco_eta}[{mask}]")
+            rdf = rdf.Define("gen_eff_recoPhi", f"{reco_phi}[{mask}]")
+            rdf = rdf.Define("gen_eff_recoPt", f"{reco_pt}[{mask}]")
             reco_eta, reco_phi = "gen_eff_recoEta", "gen_eff_recoPhi"
             reco_pt = "gen_eff_recoPt"
         rdf = rdf.Define(
@@ -385,6 +414,7 @@ class ConfigEff:
         )
         gen_pt, gen_eta, matched = self.gen["pt"], self.gen["eta"], "gen_matched"
         matched_pt = "gen_matched_pt"
+        probe_matched, probe_pt = "gen_probe_matched", "gen_probe_pt"
         if self.gen_acceptance is not None:
             # Restrict the gen denominator to the geometric acceptance (e.g.
             # barrel), so that gen electrons no reco collection can ever match
@@ -393,16 +423,21 @@ class ConfigEff:
             rdf = (rdf.Define("gen_eff_pt", f"{gen_pt}[gen_eff_acc]")
                    .Define("gen_eff_eta", f"{gen_eta}[gen_eff_acc]")
                    .Define("gen_eff_matched", f"gen_matched[gen_eff_acc]")
-                   .Define("gen_eff_matched_pt", f"gen_matched_pt[gen_eff_acc]"))
+                   .Define("gen_eff_matched_pt", f"gen_matched_pt[gen_eff_acc]")
+                   .Define("gen_eff_probe_matched", f"gen_probe_matched[gen_eff_acc]")
+                   .Define("gen_eff_probe_pt", f"gen_probe_pt[gen_eff_acc]"))
             gen_pt, gen_eta, matched = "gen_eff_pt", "gen_eff_eta", "gen_eff_matched"
             matched_pt = "gen_eff_matched_pt"
-        cols = [gen_pt, gen_eta, matched, matched_pt]
+            probe_matched, probe_pt = "gen_eff_probe_matched", "gen_eff_probe_pt"
+        cols = [gen_pt, gen_eta, matched, matched_pt, probe_matched, probe_pt]
         data = extract_columns(rdf, cols)
         return {
             "pt": data[gen_pt],
             "eta": data[gen_eta],
             "matched": data[matched] != 0,
             "reco_pt": data[matched_pt],
+            "probe_matched": data[probe_matched] != 0,
+            "probe_pt": data[probe_pt],
         }
 
 
